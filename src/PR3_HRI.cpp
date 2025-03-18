@@ -3,8 +3,10 @@
 #include "ros/ros.h"
 #include "std_msgs/String.h"
 #include "vader_msgs/Pepper.h"
+#include "vader_msgs/SingleArmPlanRequest.h"
+#include "vader_msgs/SingleArmExecutionRequest.h"
 
-
+static void coarseEstimateCallback(const vader_msgs::Pepper::ConstPtr& msg);
 
 class VADERStateMachine {
     private:
@@ -18,20 +20,21 @@ class VADERStateMachine {
     State currentState;
     vader_msgs::Pepper::ConstPtr coarseEstimate;
     ros::NodeHandle n;
-    ros::ServiceClient manipulationPlanningClient;
-    ros::ServiceClient manipulationExecutionClient;
+    ros::ServiceClient singleArmPlanClient;
+    ros::ServiceClient singleArmExecClient;
 
     public:
         VADERStateMachine() : currentState(State::Init){
             coarseEstimate = nullptr;
-            ros::Subscriber coarseEstimateSub = n.subscribe("fruit_pose", 1000, VADERStateMachine::coarseEstimateCallback);
-            manipulationPlanningClient = n.serviceClient<vader_msgs::Manipulation>("manipulationp");
-            manipulationExecutionClient = n.serviceClient<vader_msgs::Manipulation>("manipulatione");
+            ros::Subscriber coarseEstimateSub = n.subscribe("fruit_pose", 1000, coarseEstimateCallback);
+            singleArmPlanClient = n.serviceClient<vader_msgs::SingleArmPlanRequest>("manipulationp"); //TODO get names
+            singleArmExecClient = n.serviceClient<vader_msgs::SingleArmExecutionRequest>("manipulatione"); //TODO get names
         }
 
-        static void coarseEstimateCallback(const vader_msgs::Pepper::ConstPtr& msg) {
-            if (currentState == State::Init) {
-                std::cout << "Coarse estimate received" << std::endl;
+        void setCoarseEstimate(const vader_msgs::Pepper::ConstPtr& msg) {
+            if(currentState == State::Init) {
+                ROS_INFO("Coarse estimate received, switching states");
+                currentState = State::CoarseEstimate;
                 coarseEstimate = msg;
             }
         }
@@ -49,16 +52,17 @@ class VADERStateMachine {
                         }
                         break;
                     case State::CoarseEstimate:
+                    {
                         //send the coarse estimate to the manipulation module
                         ROS_INFO("Sending coarse estimate to manipulation module");
                         //something something service call for planning
                         bool success = false;
                         int NUM_TRIES = 3;
                         for (int i = 0; i < NUM_TRIES; i++) {
-                            vader_msgs::Manipulation srv;
+                            vader_msgs::SingleArmPlanRequest srv;
                             srv.request.pepper = *coarseEstimate;
-                            if (manipulationPlanningClient.call(srv)) {
-                                if (srv.response.success) {
+                            if (singleArmPlanClient.call(srv)) {
+                                if (srv.response.result == 0) {
                                     success = true;
                                     break;
                                 }
@@ -72,14 +76,15 @@ class VADERStateMachine {
                             currentState = State::Error;
                         }
                         break;
+                    }
                     case State::Manipulation:
                         //Send service call for manipulation to execute
                         ROS_INFO("Sending execute command to manipulation module");
                         //something something service call for execution
-                        vader_msgs::Manipulation srv;
-                        srv.request.pepper = *coarseEstimate;
-                        if (manipulationExecutionClient.call(srv)) {
-                            if (srv.response.success) {
+                        vader_msgs::SingleArmExecutionRequest srv;
+                        srv.request.execute = 1;
+                        if (singleArmExecClient.call(srv)) {
+                            if (srv.response.result == 0) {
                                 ROS_INFO("Manipulation execution successful, switching states");
                                 currentState = State::Done;
                             } else {
@@ -91,12 +96,12 @@ class VADERStateMachine {
                             currentState = State::Error;
                         }
                         break;
-                    case State::Done:
-                        ROS_INFO("Done");
-                        break;
-                    case State::Error:
-                        ROS_INFO("Error");
-                        break;
+                    // case State::Done:
+                    //     ROS_INFO("Done");
+                    //     break;
+                    // case State::Error:
+                    //     ROS_INFO("Error");
+                    //     break;
 
                 }
                 ros::spinOnce();
@@ -106,10 +111,18 @@ class VADERStateMachine {
 
 };
 
-int main(int argc, char **argv) {
-    VADERStateMachine sm;
 
+VADERStateMachine* sm = nullptr;
+
+static void coarseEstimateCallback(const vader_msgs::Pepper::ConstPtr& msg) {
+    sm->setCoarseEstimate(msg);
+    std::cout << "Coarse estimate received" << std::endl;
+}
+
+int main(int argc, char **argv) {
     ros::init(argc, argv, "vader_hri");
-    sm.execute();
+    VADERStateMachine statemachine = VADERStateMachine();
+    sm = &statemachine;
+    statemachine.execute();
     return 0;
 }
