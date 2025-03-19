@@ -22,11 +22,12 @@ class VADERStateMachine {
     ros::NodeHandle n;
     ros::ServiceClient singleArmPlanClient;
     ros::ServiceClient singleArmExecClient;
+    ros::Subscriber coarseEstimateSub;
 
     public:
         VADERStateMachine() : currentState(State::Init){
             coarseEstimate = nullptr;
-            ros::Subscriber coarseEstimateSub = n.subscribe("fruit_pose", 1000, coarseEstimateCallback);
+            coarseEstimateSub = n.subscribe("/fruit_pose", 10, coarseEstimateCallback);
             singleArmPlanClient = n.serviceClient<vader_msgs::SingleArmPlanRequest>("manipulationp"); //TODO get names
             singleArmExecClient = n.serviceClient<vader_msgs::SingleArmExecutionRequest>("manipulatione"); //TODO get names
         }
@@ -78,6 +79,7 @@ class VADERStateMachine {
                         break;
                     }
                     case State::Manipulation:
+                    {
                         //Send service call for manipulation to execute
                         ROS_INFO("Sending execute command to manipulation module");
                         //something something service call for execution
@@ -96,12 +98,17 @@ class VADERStateMachine {
                             currentState = State::Error;
                         }
                         break;
-                    // case State::Done:
-                    //     ROS_INFO("Done");
-                    //     break;
-                    // case State::Error:
-                    //     ROS_INFO("Error");
-                    //     break;
+                    }
+                    case State::Done:
+                    {    
+                        ROS_INFO("Done");
+                        break;
+                    }
+                    case State::Error:
+                    {
+                        ROS_INFO("Error");
+                        break;
+                    }
 
                 }
                 ros::spinOnce();
