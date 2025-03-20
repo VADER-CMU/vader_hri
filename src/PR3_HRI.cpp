@@ -6,6 +6,13 @@
 #include "vader_msgs/SingleArmPlanRequest.h"
 #include "vader_msgs/SingleArmExecutionRequest.h"
 
+#include <ros/ros.h>
+#include <tf2_ros/transform_listener.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <tf2_ros/buffer_interface.h>
+#include <tf2_ros/buffer.h>
+#include <geometry_msgs/PoseStamped.h>
+
 static void coarseEstimateCallback(const vader_msgs::Pepper::ConstPtr& msg);
 
 class VADERStateMachine {
@@ -18,7 +25,7 @@ class VADERStateMachine {
         Error
     };
     State currentState;
-    vader_msgs::Pepper::ConstPtr coarseEstimate;
+    vader_msgs::Pepper* coarseEstimate;
     ros::NodeHandle n;
     ros::ServiceClient singleArmPlanClient;
     ros::ServiceClient singleArmExecClient;
@@ -28,15 +35,62 @@ class VADERStateMachine {
         VADERStateMachine() : currentState(State::Init){
             coarseEstimate = nullptr;
             coarseEstimateSub = n.subscribe("/fruit_pose", 10, coarseEstimateCallback);
-            singleArmPlanClient = n.serviceClient<vader_msgs::SingleArmPlanRequest>("manipulationp"); //TODO get names
-            singleArmExecClient = n.serviceClient<vader_msgs::SingleArmExecutionRequest>("manipulatione"); //TODO get names
+            singleArmPlanClient = n.serviceClient<vader_msgs::SingleArmPlanRequest>("singleArmPlan"); //TODO get names
+            singleArmExecClient = n.serviceClient<vader_msgs::SingleArmExecutionRequest>("singleArmExec"); //TODO get names
         }
 
         void setCoarseEstimate(const vader_msgs::Pepper::ConstPtr& msg) {
             if(currentState == State::Init) {
+            // if(currentState == State::Init){
+            //     coarseEstimate = msg;
+            //     ROS_INFO("Coarse estimate received, switching states");
+            //     currentState = State::CoarseEstimate;
+            // }
+
+                tf2_ros::Buffer tf_buffer;
+                tf2_ros::TransformListener tf_listener(tf_buffer); 
                 ROS_INFO("Coarse estimate received, switching states");
                 currentState = State::CoarseEstimate;
-                coarseEstimate = msg;
+                geometry_msgs::PoseStamped fruit_pose;
+                fruit_pose.pose.position.x = msg->fruit_data.pose.position.x;
+                fruit_pose.pose.position.y = msg->fruit_data.pose.position.y;
+                fruit_pose.pose.position.z = msg->fruit_data.pose.position.z;
+                fruit_pose.pose.orientation.x = msg->fruit_data.pose.orientation.x;
+                fruit_pose.pose.orientation.y = msg->fruit_data.pose.orientation.y;
+                fruit_pose.pose.orientation.z = msg->fruit_data.pose.orientation.z;
+                fruit_pose.pose.orientation.w = msg->fruit_data.pose.orientation.w;
+
+                ROS_INFO("CAMERA FRAME TF: x=%f, y=%f, z=%f, q_x=%f, q_y=%f, q_z=%f, q_w=%f",
+                    fruit_pose.pose.position.x, fruit_pose.pose.position.y, fruit_pose.pose.position.z,
+                    fruit_pose.pose.orientation.x, fruit_pose.pose.orientation.y, fruit_pose.pose.orientation.z, fruit_pose.pose.orientation.w );
+                fruit_pose.header.frame_id = msg->header.frame_id;
+                
+                try {
+                    geometry_msgs::PoseStamped transformed_pose = tf_buffer.transform(
+                        fruit_pose, 
+                        "link_base", 
+                        ros::Duration(3.0)
+                    );
+                    // ROS_INFO("Transformed pose: x=%f, y=%f", 
+                    //          transformed_pose.pose.position.x,
+                    //          transformed_pose.pose.position.y);
+                    coarseEstimate = new vader_msgs::Pepper();
+                    coarseEstimate->fruit_data.pose.position.x = transformed_pose.pose.position.x;
+                    coarseEstimate->fruit_data.pose.position.y = transformed_pose.pose.position.y;
+                    coarseEstimate->fruit_data.pose.position.z = transformed_pose.pose.position.z;
+                    coarseEstimate->fruit_data.pose.orientation.x = 0;// fruit_pose.pose.orientation.x;
+                    coarseEstimate->fruit_data.pose.orientation.y = 0;//fruit_pose.pose.orientation.y;
+                    coarseEstimate->fruit_data.pose.orientation.z = 0;//fruit_pose.pose.orientation.z;
+                    coarseEstimate->fruit_data.pose.orientation.w = 1;//fruit_pose.pose.orientation.w;
+                    coarseEstimate->fruit_data.shape.dimensions.resize(2);
+                    coarseEstimate->fruit_data.shape.dimensions[0] = msg->fruit_data.shape.dimensions[0];
+                    coarseEstimate->fruit_data.shape.dimensions[1] = msg->fruit_data.shape.dimensions[1];
+                  } 
+                catch (tf2::TransformException &ex) {
+                    ROS_WARN("Transform failed: %s", ex.what());
+                }
+
+                
             }
         }
 
@@ -63,7 +117,7 @@ class VADERStateMachine {
                             vader_msgs::SingleArmPlanRequest srv;
                             srv.request.pepper = *coarseEstimate;
                             if (singleArmPlanClient.call(srv)) {
-                                if (srv.response.result == 0) {
+                                if (srv.response.result == 1) {
                                     success = true;
                                     break;
                                 }
@@ -73,8 +127,8 @@ class VADERStateMachine {
                             ROS_INFO("Manipulation planning successful, switching states");
                             currentState = State::Manipulation;
                         } else {
-                            ROS_INFO("Manipulation planning failed, switching states");
-                            currentState = State::Error;
+                            ROS_INFO("Manipulation planning failed");
+                            // currentState = State::Error;
                         }
                         break;
                     }
@@ -86,7 +140,7 @@ class VADERStateMachine {
                         vader_msgs::SingleArmExecutionRequest srv;
                         srv.request.execute = 1;
                         if (singleArmExecClient.call(srv)) {
-                            if (srv.response.result == 0) {
+                            if (srv.response.result == 1) {
                                 ROS_INFO("Manipulation execution successful, switching states");
                                 currentState = State::Done;
                             } else {
