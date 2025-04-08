@@ -13,7 +13,7 @@
 #include <tf2_ros/buffer.h>
 #include <geometry_msgs/PoseStamped.h>
 
-static void coarseEstimateCallback(const vader_msgs::Pepper::ConstPtr& msg);
+static void poseEstimateCallback(const vader_msgs::Pepper::ConstPtr& msg);
 
 class VADERStateMachine {
     private:
@@ -34,12 +34,12 @@ class VADERStateMachine {
     public:
         VADERStateMachine() : currentState(State::Init){
             coarseEstimate = nullptr;
-            coarseEstimateSub = n.subscribe("/fruit_pose", 10, coarseEstimateCallback);
+            coarseEstimateSub = n.subscribe("/fruit_pose", 10, poseEstimateCallback);
             singleArmPlanClient = n.serviceClient<vader_msgs::SingleArmPlanRequest>("singleArmPlan"); //TODO get names
             singleArmExecClient = n.serviceClient<vader_msgs::SingleArmExecutionRequest>("singleArmExec"); //TODO get names
         }
 
-        void setCoarseEstimate(const vader_msgs::Pepper::ConstPtr& msg) {
+        void setPoseEstimate(const vader_msgs::Pepper::ConstPtr& msg) {
             if(currentState == State::Init) {
             // if(currentState == State::Init){
             //     coarseEstimate = msg;
@@ -175,8 +175,8 @@ class VADERStateMachine {
 
 VADERStateMachine* sm = nullptr;
 
-static void coarseEstimateCallback(const vader_msgs::Pepper::ConstPtr& msg) {
-    sm->setCoarseEstimate(msg);
+static void poseEstimateCallback(const vader_msgs::Pepper::ConstPtr& msg) {
+    sm->setPoseEstimate(msg);
     std::cout << "Coarse estimate received" << std::endl;
 }
 

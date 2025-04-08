@@ -160,6 +160,11 @@ add_executable(PR3_HRI src/PR3_HRI.cpp)
 target_link_libraries(PR3_HRI ${catkin_LIBRARIES})
 add_dependencies(PR3_HRI vader_msgs_generate_messages_cpp)
 
+
+add_executable(PR4_HRI src/PR4_HRI.cpp)
+target_link_libraries(PR4_HRI ${catkin_LIBRARIES})
+add_dependencies(PR4_HRI vader_msgs_generate_messages_cpp)
+
 #############
 ## Install ##
 #############
@@ -181,7 +186,7 @@ add_dependencies(PR3_HRI vader_msgs_generate_messages_cpp)
 # )
 
 install(
-  TARGETS PR3_HRI
+  TARGETS PR3_HRI PR4_HRI
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
