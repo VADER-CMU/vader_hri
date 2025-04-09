@@ -15,7 +15,8 @@
 #include <tf2_ros/buffer.h>
 #include <geometry_msgs/PoseStamped.h>
 
-static void poseEstimateCallback(const vader_msgs::Pepper::ConstPtr& msg);
+static void coarseEstimateCallback(const vader_msgs::Pepper::ConstPtr& msg);
+static void fineEstimateCallback(const vader_msgs::Pepper::ConstPtr& msg);
 
 class VADERStateMachine {
     private:
@@ -172,28 +173,48 @@ class VADERStateMachine {
             graspGripperExecClient      = n.serviceClient<vader_msgs::SingleArmExecutionRequest>("gripperArmGraspExec");
             graspCutterPlanClient       = n.serviceClient<vader_msgs::SingleArmPlanRequest>("cutterArmGraspPlan");
             graspCutterExecClient       = n.serviceClient<vader_msgs::SingleArmExecutionRequest>("cutterArmGraspExec");
-            planAndMoveToBinClient     = n.serviceClient<vader_msgs::SingleArmPlanRequest>("planAndMoveToBin");
+            planAndMoveToBinClient      = n.serviceClient<vader_msgs::SingleArmPlanRequest>("planAndMoveToBin");
 
             storageBinLocation = new vader_msgs::Pepper();
-            storageBinLocation->fruit_data.pose.position.x = 0.5;
-            storageBinLocation->fruit_data.pose.position.y = 0.0;
-            storageBinLocation->fruit_data.pose.position.z = 0.0;
-            storageBinLocation->fruit_data.pose.orientation.x = 0.0;
+            storageBinLocation->fruit_data.pose.position.x = 0.15;
+            storageBinLocation->fruit_data.pose.position.y = -0.4;
+            storageBinLocation->fruit_data.pose.position.z = 0.25;
+            storageBinLocation->fruit_data.pose.orientation.x = 1.0;
             storageBinLocation->fruit_data.pose.orientation.y = 0.0;
             storageBinLocation->fruit_data.pose.orientation.z = 0.0;
-            storageBinLocation->fruit_data.pose.orientation.w = 1.0;
+            storageBinLocation->fruit_data.pose.orientation.w = 0.0;
 
             gripperCommandPub = n.advertise<vader_msgs::GripperCommand>("/gripper_command", 10);
             cutterCommandPub = n.advertise<vader_msgs::CutterCommand>("/cutter_command", 10);
         }
 
+        void setCoarsePoseEstimate(const vader_msgs::Pepper::ConstPtr& msg) {
+            coarseEstimate = new vader_msgs::Pepper();
+            coarseEstimate->header = msg->header;
+            _transformFromCameraFrameIntoRobotFrame(msg, coarseEstimate);
+            _logWithState("Coarse estimate received");
+        }
+    
+        void setFinePoseEstimate(const vader_msgs::Pepper::ConstPtr& msg) {
+            fineEstimate = new vader_msgs::Pepper();
+            fineEstimate->header = msg->header;
+            _transformFromCameraFrameIntoRobotFrame(msg, fineEstimate);
+            _logWithState("Fine estimate received");
+        }
+    
         void execute() {
             ros::Rate loop_rate(10);
             while (ros::ok()) {
                 switch (currentState) {
                     case State::WaitForCoarseEstimate:
                     {
-
+                        if (coarseEstimate != nullptr) {
+                            _logWithState("Coarse estimate received, switching states");
+                            currentState = State::PlanGripperToPregrasp;
+                        } else {
+                            _logWithState("Waiting for coarse estimate");
+                        }
+                        break;
                     }
                     case State::PlanGripperToPregrasp:
                     {
@@ -235,7 +256,13 @@ class VADERStateMachine {
                     }
                     case State::WaitForFineEstimate:
                     {
-
+                        if (fineEstimate != nullptr) {
+                            _logWithState("Fine estimate received, switching states");
+                            currentState = State::PlanGripperToGrasp;
+                        } else {
+                            _logWithState("Waiting for fine estimate");
+                        }
+                        break;
                     }
                     case State::PlanGripperToGrasp:
                     {
@@ -383,10 +410,19 @@ class VADERStateMachine {
 VADERStateMachine* sm = nullptr;
 
 static void coarseEstimateCallback(const vader_msgs::Pepper::ConstPtr& msg) {
+    if (sm != nullptr) {
+        sm->setCoarsePoseEstimate(msg);
+    } else {
+        ROS_ERROR("State machine is not initialized");
+    }
 }
 
 static void fineEstimateCallback(const vader_msgs::Pepper::ConstPtr& msg) {
-    //TODO
+    if (sm != nullptr) {
+        sm->setFinePoseEstimate(msg);
+    } else {
+        ROS_ERROR("State machine is not initialized");
+    }
 }
 
 int main(int argc, char **argv) {
