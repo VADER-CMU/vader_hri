@@ -165,6 +165,11 @@ add_executable(PR4_HRI src/PR4_HRI.cpp)
 target_link_libraries(PR4_HRI ${catkin_LIBRARIES})
 add_dependencies(PR4_HRI vader_msgs_generate_messages_cpp)
 
+
+add_executable(SVD_DualSim_HRI src/SVD_DualSim_HRI.cpp)
+target_link_libraries(SVD_DualSim_HRI ${catkin_LIBRARIES})
+add_dependencies(SVD_DualSim_HRI vader_msgs_generate_messages_cpp)
+
 #############
 ## Install ##
 #############

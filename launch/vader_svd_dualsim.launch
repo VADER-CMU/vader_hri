@@ -1,0 +1,17 @@
+<launch>
+    <!-- TF -->
+    <node pkg="vader_planner" type="cam_transform_publisher.py" name="tform"/>
+    <!-- HRI state machine node -->
+    <node pkg="vader_hri" type="SVD_DualSim_HRI" name="SVD_DualSim_HRI" output="screen"/>
+    <!-- HW interfacing TODO change this-->
+    <include file="$(find vader_planner)/launch/vader_PR4_realHW.launch"> 
+        <arg name="robot_dof" value="7"/>
+        <arg name="robot_ip" value="192.168.1.195"/>    
+    </include>
+    <!-- Coarse pose estimate -->
+    <include file="$(find pose_estimation)/launch/coarse_pose_estimation.launch">
+    </include>
+    <!-- TODO include fine pose estimation node too -->
+
+    <node pkg="vader_dynamixel" type="dynamixel_node.py" name="dynamixel"/>
+</launch>
