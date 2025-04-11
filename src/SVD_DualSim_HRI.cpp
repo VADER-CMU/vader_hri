@@ -311,7 +311,7 @@ class VADERStateMachine {
                         int NUM_PLAN_TRIES = 3;
                         bool success = false;
                         for (int i = 0; i < NUM_PLAN_TRIES; i++) {
-                            if (_callPlannerService(&pregraspCutterPlanClient, *fineEstimate)) {
+                            if (_callPlannerService(&graspCutterPlanClient, *fineEstimate)) {
                                 success = true;
                                 break;
                             }
@@ -330,7 +330,7 @@ class VADERStateMachine {
                         int NUM_EXEC_TRIES = 3;
                         bool success = false;
                         for (int i = 0; i < NUM_EXEC_TRIES; i++) {
-                            if (_callExecutorService(&pregraspCutterExecClient)) {
+                            if (_callExecutorService(&graspCutterExecClient)) {
                                 success = true;
                                 break;
                             }
