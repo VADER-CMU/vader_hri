@@ -5,6 +5,9 @@
 #include "vader_msgs/Pepper.h"
 #include "vader_msgs/SingleArmPlanRequest.h"
 #include "vader_msgs/SingleArmExecutionRequest.h"
+#include "vader_msgs/BimanualPlanRequest.h"
+#include "vader_msgs/BimanualExecRequest.h"
+#include "vader_msgs/MoveToStorageRequest.h"
 #include "vader_msgs/GripperCommand.h"
 #include "vader_msgs/CutterCommand.h"
 
@@ -48,13 +51,11 @@ class VADERStateMachine {
     ros::Subscriber coarseEstimateSub, fineEstimateSub;
     vader_msgs::Pepper* coarseEstimate;
     vader_msgs::Pepper* fineEstimate;
-    vader_msgs::Pepper* storageBinLocation; //only the fruit pose is used to designate storage bin location.
+    geometry_msgs::Point* storageBinLocation; //only the fruit pose is used to designate storage bin location.
 
     //Plan/Exec clients connecting to planner
-    ros::ServiceClient pregraspGripperPlanClient, pregraspGripperExecClient;
-    ros::ServiceClient graspGripperPlanClient, graspGripperExecClient;
-    ros::ServiceClient graspCutterPlanClient, graspCutterExecClient;
-    ros::ServiceClient planAndMoveToBinClient;
+    ros::ServiceClient planClient, execClient;
+    ros::ServiceClient moveToStorageClient;
 
     //End effector talking to dynamixel node
     ros::Publisher gripperCommandPub, cutterCommandPub;
@@ -164,22 +165,31 @@ class VADERStateMachine {
             fineEstimate = nullptr;
             fineEstimateSub = n.subscribe("/fruit_fine_pose", 10, fineEstimateCallback);
 
-            pregraspGripperPlanClient   = n.serviceClient<vader_msgs::SingleArmPlanRequest>("gripperArmPregraspPlan");
-            pregraspGripperExecClient   = n.serviceClient<vader_msgs::SingleArmExecutionRequest>("gripperArmPregraspExec");
-            graspGripperPlanClient      = n.serviceClient<vader_msgs::SingleArmPlanRequest>("gripperArmGraspPlan");
-            graspGripperExecClient      = n.serviceClient<vader_msgs::SingleArmExecutionRequest>("gripperArmGraspExec");
-            graspCutterPlanClient       = n.serviceClient<vader_msgs::SingleArmPlanRequest>("cutterArmGraspPlan");
-            graspCutterExecClient       = n.serviceClient<vader_msgs::SingleArmExecutionRequest>("cutterArmGraspExec");
-            planAndMoveToBinClient      = n.serviceClient<vader_msgs::SingleArmPlanRequest>("planAndMoveToBin");
 
-            storageBinLocation = new vader_msgs::Pepper();
-            storageBinLocation->fruit_data.pose.position.x = 0.15;
-            storageBinLocation->fruit_data.pose.position.y = -0.4;
-            storageBinLocation->fruit_data.pose.position.z = 0.25;
-            storageBinLocation->fruit_data.pose.orientation.x = 1.0;
-            storageBinLocation->fruit_data.pose.orientation.y = 0.0;
-            storageBinLocation->fruit_data.pose.orientation.z = 0.0;
-            storageBinLocation->fruit_data.pose.orientation.w = 0.0;
+            // pregraspGripperPlanClient   = n.serviceClient<vader_msgs::SingleArmPlanRequest>("gripperArmPregraspPlan");
+            // pregraspGripperExecClient   = n.serviceClient<vader_msgs::SingleArmExecutionRequest>("gripperArmPregraspExec");
+            // graspGripperPlanClient      = n.serviceClient<vader_msgs::SingleArmPlanRequest>("gripperArmGraspPlan");
+            // graspGripperExecClient      = n.serviceClient<vader_msgs::SingleArmExecutionRequest>("gripperArmGraspExec");
+            // graspCutterPlanClient       = n.serviceClient<vader_msgs::SingleArmPlanRequest>("cutterArmGraspPlan");
+            // graspCutterExecClient       = n.serviceClient<vader_msgs::SingleArmExecutionRequest>("cutterArmGraspExec");
+            // planAndMoveToBinClient      = n.serviceClient<vader_msgs::SingleArmPlanRequest>("planAndMoveToBin");
+            planClient = n.serviceClient<vader_msgs::BimanualPlanRequest>("vader_plan");
+            execClient = n.serviceClient<vader_msgs::BimanualExecRequest>("vader_exec");
+            moveToStorageClient = n.serviceClient<vader_msgs::MoveToStorageRequest>("move_to_storage");
+
+
+            storageBinLocation = new geometry_msgs::Point();
+            std::string bin_xyz;
+            if (n.getParam("/bin_xyz", bin_xyz)) {
+                std::stringstream ss(bin_xyz);
+                ss >> storageBinLocation->x 
+                   >> storageBinLocation->y 
+                   >> storageBinLocation->z;
+                ROS_INFO_STREAM("Loaded bin_xyz: " << bin_xyz);
+            } else {
+                ROS_WARN("Failed to get param '/bin_xyz', using default values");
+            }
+            //TODO update
 
             gripperCommandPub = n.advertise<vader_msgs::GripperCommand>("/gripper_command", 10);
             cutterCommandPub = n.advertise<vader_msgs::CutterCommand>("/cutter_command", 10);
@@ -189,14 +199,14 @@ class VADERStateMachine {
             coarseEstimate = new vader_msgs::Pepper();
             coarseEstimate->header = msg->header;
             _transformFromCameraFrameIntoRobotFrame(msg, coarseEstimate);
-            _logWithState("Coarse estimate received");
+            // _logWithState("Coarse estimate received");
         }
     
         void setFinePoseEstimate(const vader_msgs::Pepper::ConstPtr& msg) {
             fineEstimate = new vader_msgs::Pepper();
             fineEstimate->header = msg->header;
             _transformFromCameraFrameIntoRobotFrame(msg, fineEstimate);
-            _logWithState("Fine estimate received");
+            // _logWithState("Fine estimate received");
         }
     
         void execute() {
@@ -217,10 +227,18 @@ class VADERStateMachine {
                     {
                         int NUM_PLAN_TRIES = 3;
                         bool success = false;
+                        vader_msgs::BimanualPlanRequest request;
+                        request.request.mode = request.request.GRIPPER_PREGRASP_PLAN;
+                        request.request.pepper = *coarseEstimate;
+                        request.request.reserve_dist = 0.2;
+                        request.request.gripper_camera_rotation = request.request.GRIPPER_DO_ROTATE_CAMERA;
                         for (int i = 0; i < NUM_PLAN_TRIES; i++) {
-                            if (_callPlannerService(&pregraspGripperPlanClient, *coarseEstimate)) {
-                                success = true;
-                                break;
+                            if (planClient.call(request)){
+                                if (request.response.result == 1) {
+                                    _logWithState("Planning successful");
+                                    success = true;
+                                    break;
+                                }
                             }
                         }
                         if (success) {
@@ -228,7 +246,8 @@ class VADERStateMachine {
                             currentState = State::MoveGripperToPregrasp;
                         } else {
                             _logWithState("Gripper pregrasp planning failed");
-                            currentState = State::Error;
+                            // currentState = State::Error;
+                            currentState = State::WaitForCoarseEstimate;
                         }
                         break;
                     }
@@ -236,10 +255,15 @@ class VADERStateMachine {
                     {
                         int NUM_EXEC_TRIES = 3;
                         bool success = false;
+                        vader_msgs::BimanualExecRequest request;
+                        request.request.mode = request.request.GRIPPER_PREGRASP_EXEC;
                         for (int i = 0; i < NUM_EXEC_TRIES; i++) {
-                            if (_callExecutorService(&pregraspGripperExecClient)) {
-                                success = true;
-                                break;
+                            if (execClient.call(request)){
+                                if (request.response.result == 1) {
+                                    _logWithState("Execution successful");
+                                    success = true;
+                                    break;
+                                }
                             }
                         }
                         if (success) {
@@ -265,10 +289,17 @@ class VADERStateMachine {
                     {
                         int NUM_PLAN_TRIES = 3;
                         bool success = false;
+                        vader_msgs::BimanualPlanRequest request;
+                        request.request.mode = request.request.GRIPPER_GRASP_PLAN;
+                        request.request.reserve_dist = 0.2;
+                        request.request.pepper = *fineEstimate;
                         for (int i = 0; i < NUM_PLAN_TRIES; i++) {
-                            if (_callPlannerService(&graspGripperPlanClient, *fineEstimate)) {
-                                success = true;
-                                break;
+                            if (planClient.call(request)){
+                                if (request.response.result == 1) {
+                                    _logWithState("Planning successful");
+                                    success = true;
+                                    break;
+                                }
                             }
                         }
                         if (success) {
@@ -284,10 +315,15 @@ class VADERStateMachine {
                     {
                         int NUM_EXEC_TRIES = 3;
                         bool success = false;
+                        vader_msgs::BimanualExecRequest request;
+                        request.request.mode = request.request.GRIPPER_GRASP_EXEC;
                         for (int i = 0; i < NUM_EXEC_TRIES; i++) {
-                            if (_callExecutorService(&graspGripperExecClient)) {
-                                success = true;
-                                break;
+                            if (execClient.call(request)){
+                                if (request.response.result == 1) {
+                                    _logWithState("Execution successful");
+                                    success = true;
+                                    break;
+                                }
                             }
                         }
                         if (success) {
@@ -303,76 +339,83 @@ class VADERStateMachine {
                     {
                         _logWithState("Grasping fruit");
                         _sendGripperCommand(0);
-                        currentState = State::PlanCutterToGrasp;
-                        break;
-                    }
-                    case State::PlanCutterToGrasp:
-                    {
-                        int NUM_PLAN_TRIES = 3;
-                        bool success = false;
-                        for (int i = 0; i < NUM_PLAN_TRIES; i++) {
-                            if (_callPlannerService(&graspCutterPlanClient, *fineEstimate)) {
-                                success = true;
-                                break;
-                            }
-                        }
-                        if (success) {
-                            _logWithState("Cutter pregrasp planning successful, switching states");
-                            currentState = State::MoveCutterToGrasp;
-                        } else {
-                            _logWithState("Cutter pregrasp planning failed");
-                            currentState = State::Error;
-                        }
-                        break;
-                    }
-                    case State::MoveCutterToGrasp:
-                    {
-                        int NUM_EXEC_TRIES = 3;
-                        bool success = false;
-                        for (int i = 0; i < NUM_EXEC_TRIES; i++) {
-                            if (_callExecutorService(&graspCutterExecClient)) {
-                                success = true;
-                                break;
-                            }
-                        }
-                        if (success) {
-                            _logWithState("Cutter pregrasp execution successful, switching states");
-                            currentState = State::CutterGrasp;
-                        } else {
-                            _logWithState("Cutter pregrasp execution failed");
-                            currentState = State::Error;
-                        }
-                        break;
-                    }
-                    case State::CutterGrasp:
-                    {
-                        int NUM_CUTS = 2;
-                        _logWithState("Cutting peduncle");
-                        for (int i = 0; i < NUM_CUTS; i++) {
-                            _sendCutterCommand(0);
-                            ros::Duration(1.0).sleep();
-                            _sendCutterCommand(100);
-                            ros::Duration(1.0).sleep();
-                        }
-
+                        ros::Duration(5.0).sleep();
                         currentState = State::PlanAndMoveToBin;
                         break;
                     }
+                    // case State::PlanCutterToGrasp:
+                    // {
+                    //     int NUM_PLAN_TRIES = 3;
+                    //     bool success = false;
+                    //     for (int i = 0; i < NUM_PLAN_TRIES; i++) {
+                    //         if (_callPlannerService(&graspCutterPlanClient, *fineEstimate)) {
+                    //             success = true;
+                    //             break;
+                    //         }
+                    //     }
+                    //     if (success) {
+                    //         _logWithState("Cutter pregrasp planning successful, switching states");
+                    //         currentState = State::MoveCutterToGrasp;
+                    //     } else {
+                    //         _logWithState("Cutter pregrasp planning failed");
+                    //         currentState = State::Error;
+                    //     }
+                    //     break;
+                    // }
+                    // case State::MoveCutterToGrasp:
+                    // {
+                    //     int NUM_EXEC_TRIES = 3;
+                    //     bool success = false;
+                    //     for (int i = 0; i < NUM_EXEC_TRIES; i++) {
+                    //         if (_callExecutorService(&graspCutterExecClient)) {
+                    //             success = true;
+                    //             break;
+                    //         }
+                    //     }
+                    //     if (success) {
+                    //         _logWithState("Cutter pregrasp execution successful, switching states");
+                    //         currentState = State::CutterGrasp;
+                    //     } else {
+                    //         _logWithState("Cutter pregrasp execution failed");
+                    //         currentState = State::Error;
+                    //     }
+                    //     break;
+                    // }
+                    // case State::CutterGrasp:
+                    // {
+                    //     int NUM_CUTS = 2;
+                    //     _logWithState("Cutting peduncle");
+                    //     for (int i = 0; i < NUM_CUTS; i++) {
+                    //         _sendCutterCommand(0);
+                    //         ros::Duration(1.0).sleep();
+                    //         _sendCutterCommand(100);
+                    //         ros::Duration(1.0).sleep();
+                    //     }
+
+                    //     currentState = State::PlanAndMoveToBin;
+                    //     break;
+                    // }
                     case State::PlanAndMoveToBin:
                     {
                         int NUM_EXEC_TRIES = 3;
                         bool success = false;
+                        vader_msgs::MoveToStorageRequest request;
+                        request.request.reserve_dist = 0.2;
+                        request.request.binLocation = *storageBinLocation;
                         for (int i = 0; i < NUM_EXEC_TRIES; i++) {
-                            if (_callPlannerService(&planAndMoveToBinClient, *storageBinLocation)) {
-                                success = true;
-                                break;
+                            if (moveToStorageClient.call(request)){
+                                if (request.response.result == 1) {
+                                    _logWithState("Execution successful");
+                                    success = true;
+                                    break;
+                                }
                             }
                         }
                         if (success) {
-                            _logWithState("Cutter pregrasp execution successful, switching states");
+                            _logWithState("Move to bin execution successful, switching states");
                             currentState = State::GripperRelease;
                         } else {
-                            _logWithState("Cutter pregrasp execution failed");
+                            _logWithState("Move to bin execution failed");
                             currentState = State::Error;
                         }
                         break;
@@ -391,7 +434,7 @@ class VADERStateMachine {
                     }
                     case State::Error:
                     {
-                        ROS_INFO("Error");
+                        // ROS_INFO("Error");
                         break;
                     }
 
