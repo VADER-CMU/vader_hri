@@ -29,10 +29,10 @@ class VADERStateMachine {
         WaitForFineEstimate,
         PlanGripperToGrasp,
         MoveGripperToGrasp,
+        GripperGrasp,
+        // ------------Harvest stage-----------
         PlanCutterToGrasp,
         MoveCutterToGrasp,
-        // ------------Harvest stage-----------
-        GripperGrasp,
         CutterGrasp,
         // -----------Finish and cleanup-----------
         PlanAndMoveToBin,
@@ -52,7 +52,6 @@ class VADERStateMachine {
 
     //Plan/Exec clients connecting to planner
     ros::ServiceClient pregraspGripperPlanClient, pregraspGripperExecClient;
-    ros::ServiceClient pregraspCutterPlanClient, pregraspCutterExecClient;
     ros::ServiceClient graspGripperPlanClient, graspGripperExecClient;
     ros::ServiceClient graspCutterPlanClient, graspCutterExecClient;
     ros::ServiceClient planAndMoveToBinClient;
@@ -167,8 +166,6 @@ class VADERStateMachine {
 
             pregraspGripperPlanClient   = n.serviceClient<vader_msgs::SingleArmPlanRequest>("gripperArmPregraspPlan");
             pregraspGripperExecClient   = n.serviceClient<vader_msgs::SingleArmExecutionRequest>("gripperArmPregraspExec");
-            pregraspCutterPlanClient    = n.serviceClient<vader_msgs::SingleArmPlanRequest>("cutterArmPregraspPlan");
-            pregraspCutterExecClient    = n.serviceClient<vader_msgs::SingleArmExecutionRequest>("cutterArmPregraspExec");
             graspGripperPlanClient      = n.serviceClient<vader_msgs::SingleArmPlanRequest>("gripperArmGraspPlan");
             graspGripperExecClient      = n.serviceClient<vader_msgs::SingleArmExecutionRequest>("gripperArmGraspExec");
             graspCutterPlanClient       = n.serviceClient<vader_msgs::SingleArmPlanRequest>("cutterArmGraspPlan");
@@ -295,11 +292,18 @@ class VADERStateMachine {
                         }
                         if (success) {
                             _logWithState("Gripper grasp execution successful, switching states");
-                            currentState = State::PlanCutterToGrasp;
+                            currentState = State::GripperGrasp;
                         } else {
                             _logWithState("Gripper grasp execution failed");
                             currentState = State::Error;
                         }
+                        break;
+                    }
+                    case State::GripperGrasp:
+                    {
+                        _logWithState("Grasping fruit");
+                        _sendGripperCommand(0);
+                        currentState = State::PlanCutterToGrasp;
                         break;
                     }
                     case State::PlanCutterToGrasp:
@@ -333,18 +337,11 @@ class VADERStateMachine {
                         }
                         if (success) {
                             _logWithState("Cutter pregrasp execution successful, switching states");
-                            currentState = State::GripperGrasp;
+                            currentState = State::CutterGrasp;
                         } else {
                             _logWithState("Cutter pregrasp execution failed");
                             currentState = State::Error;
                         }
-                        break;
-                    }
-                    case State::GripperGrasp:
-                    {
-                        _logWithState("Grasping fruit");
-                        _sendGripperCommand(0);
-                        currentState = State::CutterGrasp;
                         break;
                     }
                     case State::CutterGrasp:
