@@ -318,7 +318,7 @@ class VADERStateMachine {
                         bool success = false;
                         vader_msgs::BimanualPlanRequest request;
                         request.request.mode = request.request.GRIPPER_GRASP_PLAN;
-                        request.request.reserve_dist = 0.2;
+                        request.request.reserve_dist = 0.1;
                         request.request.pepper = *fineEstimate;
                         for (int i = 0; i < NUM_PLAN_TRIES; i++) {
                             if (planClient.call(request)){
@@ -366,13 +366,12 @@ class VADERStateMachine {
                     {
                         _logWithState("Grasping fruit");
                         _sendGripperCommand(0);
-                        ros::Duration(5.0).sleep();
+                        ros::Duration(1.0).sleep();
                         currentState = State::PlanCutterToGrasp;
                         break;
                     }
                     case State::PlanCutterToGrasp:
                     {
-                        ros::Duration(5.0).sleep();
                         int NUM_PLAN_TRIES = 3;
                         bool success = false;
                         vader_msgs::BimanualPlanRequest request;
@@ -469,7 +468,7 @@ class VADERStateMachine {
                     }
                     case State::Done:
                     {    
-                        ROS_INFO("Done");
+                        // ROS_INFO("Done");
                         break;
                     }
                     case State::Error:
