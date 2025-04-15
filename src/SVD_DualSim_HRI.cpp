@@ -75,16 +75,31 @@ class VADERStateMachine {
         fruit_pose.pose.orientation.y = cameraFrameMsg->fruit_data.pose.orientation.y;
         fruit_pose.pose.orientation.z = cameraFrameMsg->fruit_data.pose.orientation.z;
         fruit_pose.pose.orientation.w = cameraFrameMsg->fruit_data.pose.orientation.w;
+
+        geometry_msgs::PoseStamped peduncle_pose;
+        peduncle_pose.pose.position.x = -cameraFrameMsg->peduncle_data.pose.position.y;
+        peduncle_pose.pose.position.y = cameraFrameMsg->peduncle_data.pose.position.x;
+        peduncle_pose.pose.position.z = cameraFrameMsg->peduncle_data.pose.position.z;
+        peduncle_pose.pose.orientation.x = cameraFrameMsg->peduncle_data.pose.orientation.x;
+        peduncle_pose.pose.orientation.y = cameraFrameMsg->peduncle_data.pose.orientation.y;
+        peduncle_pose.pose.orientation.z = cameraFrameMsg->peduncle_data.pose.orientation.z;
+        peduncle_pose.pose.orientation.w = cameraFrameMsg->peduncle_data.pose.orientation.w;
         //TODO when peduncle data is published, do the same transform
 
         // ROS_INFO("CAMERA FRAME TF: x=%f, y=%f, z=%f, q_x=%f, q_y=%f, q_z=%f, q_w=%f",
         //     fruit_pose.pose.position.x, fruit_pose.pose.position.y, fruit_pose.pose.position.z,
         //     fruit_pose.pose.orientation.x, fruit_pose.pose.orientation.y, fruit_pose.pose.orientation.z, fruit_pose.pose.orientation.w );
         fruit_pose.header.frame_id = cameraFrameMsg->header.frame_id;
+        peduncle_pose.header.frame_id = cameraFrameMsg->header.frame_id;
 
         try {
             geometry_msgs::PoseStamped transformed_pose = tf_buffer.transform(
                 fruit_pose, 
+                "link_base", 
+                ros::Duration(3.0)
+            );
+            geometry_msgs::PoseStamped transformed_peduncle_pose = tf_buffer.transform(
+                peduncle_pose, 
                 "link_base", 
                 ros::Duration(3.0)
             );
@@ -102,6 +117,18 @@ class VADERStateMachine {
             result->fruit_data.shape.dimensions.resize(2);
             result->fruit_data.shape.dimensions[0] = cameraFrameMsg->fruit_data.shape.dimensions[0];
             result->fruit_data.shape.dimensions[1] = cameraFrameMsg->fruit_data.shape.dimensions[1];
+
+            result->peduncle_data.pose.position.x = transformed_peduncle_pose.pose.position.x;
+            result->peduncle_data.pose.position.y = transformed_peduncle_pose.pose.position.y;
+            result->peduncle_data.pose.position.z = transformed_peduncle_pose.pose.position.z;
+            result->peduncle_data.pose.orientation.x = transformed_peduncle_pose.pose.orientation.x;
+            result->peduncle_data.pose.orientation.y = transformed_peduncle_pose.pose.orientation.y;
+            result->peduncle_data.pose.orientation.z = transformed_peduncle_pose.pose.orientation.z;
+            result->peduncle_data.pose.orientation.w = transformed_peduncle_pose.pose.orientation.w; //todo check if the orientation is correct
+            result->peduncle_data.shape.dimensions.resize(2);
+            result->peduncle_data.shape.dimensions[0] = cameraFrameMsg->peduncle_data.shape.dimensions[0];
+            result->peduncle_data.shape.dimensions[1] = cameraFrameMsg->peduncle_data.shape.dimensions[1];
+
           } 
         catch (tf2::TransformException &ex) {
             ROS_WARN("Transform failed: %s", ex.what());
@@ -340,61 +367,74 @@ class VADERStateMachine {
                         _logWithState("Grasping fruit");
                         _sendGripperCommand(0);
                         ros::Duration(5.0).sleep();
+                        currentState = State::PlanCutterToGrasp;
+                        break;
+                    }
+                    case State::PlanCutterToGrasp:
+                    {
+                        ros::Duration(5.0).sleep();
+                        int NUM_PLAN_TRIES = 3;
+                        bool success = false;
+                        vader_msgs::BimanualPlanRequest request;
+                        request.request.mode = request.request.CUTTER_GRASP_PLAN;
+                        request.request.reserve_dist = 0.04;
+                        request.request.pepper = *fineEstimate;
+                        for (int i = 0; i < NUM_PLAN_TRIES; i++) {
+                            if (planClient.call(request)){
+                                if (request.response.result == 1) {
+                                    _logWithState("Planning successful");
+                                    success = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (success) {
+                            _logWithState("Cutter pregrasp planning successful, switching states");
+                            currentState = State::MoveCutterToGrasp;
+                        } else {
+                            _logWithState("Cutter pregrasp planning failed");
+                            currentState = State::Error;
+                        }
+                        break;
+                    }
+                    case State::MoveCutterToGrasp:
+                    {
+                        int NUM_EXEC_TRIES = 3;
+                        bool success = false;
+                        vader_msgs::BimanualExecRequest request;
+                        request.request.mode = request.request.CUTTER_GRASP_EXEC;
+                        for (int i = 0; i < NUM_EXEC_TRIES; i++) {
+                            if (execClient.call(request)){
+                                if (request.response.result == 1) {
+                                    _logWithState("Execution successful");
+                                    success = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (success) {
+                            _logWithState("Cutter pregrasp execution successful, switching states");
+                            currentState = State::CutterGrasp;
+                        } else {
+                            _logWithState("Cutter pregrasp execution failed");
+                            currentState = State::Error;
+                        }
+                        break;
+                    }
+                    case State::CutterGrasp:
+                    {
+                        int NUM_CUTS = 2;
+                        _logWithState("Cutting peduncle");
+                        for (int i = 0; i < NUM_CUTS; i++) {
+                            _sendCutterCommand(0);
+                            ros::Duration(1.0).sleep();
+                            _sendCutterCommand(100);
+                            ros::Duration(1.0).sleep();
+                        }
+
                         currentState = State::PlanAndMoveToBin;
                         break;
                     }
-                    // case State::PlanCutterToGrasp:
-                    // {
-                    //     int NUM_PLAN_TRIES = 3;
-                    //     bool success = false;
-                    //     for (int i = 0; i < NUM_PLAN_TRIES; i++) {
-                    //         if (_callPlannerService(&graspCutterPlanClient, *fineEstimate)) {
-                    //             success = true;
-                    //             break;
-                    //         }
-                    //     }
-                    //     if (success) {
-                    //         _logWithState("Cutter pregrasp planning successful, switching states");
-                    //         currentState = State::MoveCutterToGrasp;
-                    //     } else {
-                    //         _logWithState("Cutter pregrasp planning failed");
-                    //         currentState = State::Error;
-                    //     }
-                    //     break;
-                    // }
-                    // case State::MoveCutterToGrasp:
-                    // {
-                    //     int NUM_EXEC_TRIES = 3;
-                    //     bool success = false;
-                    //     for (int i = 0; i < NUM_EXEC_TRIES; i++) {
-                    //         if (_callExecutorService(&graspCutterExecClient)) {
-                    //             success = true;
-                    //             break;
-                    //         }
-                    //     }
-                    //     if (success) {
-                    //         _logWithState("Cutter pregrasp execution successful, switching states");
-                    //         currentState = State::CutterGrasp;
-                    //     } else {
-                    //         _logWithState("Cutter pregrasp execution failed");
-                    //         currentState = State::Error;
-                    //     }
-                    //     break;
-                    // }
-                    // case State::CutterGrasp:
-                    // {
-                    //     int NUM_CUTS = 2;
-                    //     _logWithState("Cutting peduncle");
-                    //     for (int i = 0; i < NUM_CUTS; i++) {
-                    //         _sendCutterCommand(0);
-                    //         ros::Duration(1.0).sleep();
-                    //         _sendCutterCommand(100);
-                    //         ros::Duration(1.0).sleep();
-                    //     }
-
-                    //     currentState = State::PlanAndMoveToBin;
-                    //     break;
-                    // }
                     case State::PlanAndMoveToBin:
                     {
                         int NUM_EXEC_TRIES = 3;
