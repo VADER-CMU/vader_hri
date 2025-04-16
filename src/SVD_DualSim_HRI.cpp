@@ -372,11 +372,11 @@ class VADERStateMachine {
                     }
                     case State::PlanCutterToGrasp:
                     {
-                        int NUM_PLAN_TRIES = 3;
+                        int NUM_PLAN_TRIES = 1;
                         bool success = false;
                         vader_msgs::BimanualPlanRequest request;
                         request.request.mode = request.request.CUTTER_GRASP_PLAN;
-                        request.request.reserve_dist = 0.04;
+                        request.request.reserve_dist = 0.2;//0.04;
                         request.request.pepper = *fineEstimate;
                         for (int i = 0; i < NUM_PLAN_TRIES; i++) {
                             if (planClient.call(request)){
