@@ -156,19 +156,23 @@ include_directories(
 #   ${catkin_LIBRARIES}
 # )
 
-add_executable(PR3_HRI src/PR3_HRI.cpp)
-target_link_libraries(PR3_HRI ${catkin_LIBRARIES})
-add_dependencies(PR3_HRI vader_msgs_generate_messages_cpp)
+# add_executable(PR3_HRI src/PR3_HRI.cpp)
+# target_link_libraries(PR3_HRI ${catkin_LIBRARIES})
+# add_dependencies(PR3_HRI vader_msgs_generate_messages_cpp)
 
 
-add_executable(PR4_HRI src/PR4_HRI.cpp)
-target_link_libraries(PR4_HRI ${catkin_LIBRARIES})
-add_dependencies(PR4_HRI vader_msgs_generate_messages_cpp)
+# add_executable(PR4_HRI src/PR4_HRI.cpp)
+# target_link_libraries(PR4_HRI ${catkin_LIBRARIES})
+# add_dependencies(PR4_HRI vader_msgs_generate_messages_cpp)
 
 
-add_executable(SVD_DualSim_HRI src/SVD_DualSim_HRI.cpp)
-target_link_libraries(SVD_DualSim_HRI ${catkin_LIBRARIES})
-add_dependencies(SVD_DualSim_HRI vader_msgs_generate_messages_cpp)
+# add_executable(SVD_DualSim_HRI src/SVD_DualSim_HRI.cpp)
+# target_link_libraries(SVD_DualSim_HRI ${catkin_LIBRARIES})
+# add_dependencies(SVD_DualSim_HRI vader_msgs_generate_messages_cpp)
+
+add_executable(SVD_SingleReal_HRI src/SVD_SingleReal_HRI.cpp)
+target_link_libraries(SVD_SingleReal_HRI ${catkin_LIBRARIES})
+add_dependencies(SVD_SingleReal_HRI vader_msgs_generate_messages_cpp)
 
 #############
 ## Install ##
@@ -191,7 +195,7 @@ add_dependencies(SVD_DualSim_HRI vader_msgs_generate_messages_cpp)
 # )
 
 install(
-  TARGETS PR3_HRI PR4_HRI
+  TARGETS SVD_SingleReal_HRI
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

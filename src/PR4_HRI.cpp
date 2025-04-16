@@ -164,159 +164,238 @@ class VADERStateMachine {
                 switch (currentState) {
                     case State::WaitForCoarseEstimate:
                     {
-                        //wait for a perception coarse estimate to be published
-                        ROS_INFO("Waiting for coarse estimate");
-                        if (estimate != nullptr) {
-                            ROS_INFO("Coarse estimate received, switching states");
-                            currentState = State::PlanToPregrasp;
+                        if (coarseEstimate != nullptr) {
+                            _logWithState("Coarse estimate received, switching states");
+                            currentState = State::PlanGripperToPregrasp;
+                        } else {
+                            _logWithState("Waiting for coarse estimate");
                         }
                         break;
                     }
-                    case State::PlanToPregrasp:
+                    case State::PlanGripperToPregrasp:
                     {
-                        //send the coarse estimate to the manipulation module
-                        ROS_INFO("Sending coarse estimate to manipulation module");
-                        //something something service call for planning
+                        int NUM_PLAN_TRIES = 3;
                         bool success = false;
-                        int NUM_TRIES = 3;
-                        for (int i = 0; i < NUM_TRIES; i++) {
-                            vader_msgs::SingleArmPlanRequest srv;
-                            srv.request.pepper = *estimate;
-                            if (singleArmPlanClient.call(srv)) {
-                                if (srv.response.result == 1) {
+                        vader_msgs::BimanualPlanRequest request;
+                        request.request.mode = request.request.GRIPPER_PREGRASP_PLAN;
+                        request.request.pepper = *coarseEstimate;
+                        request.request.reserve_dist = 0.2;
+                        request.request.gripper_camera_rotation = request.request.GRIPPER_DO_ROTATE_CAMERA;
+                        for (int i = 0; i < NUM_PLAN_TRIES; i++) {
+                            if (planClient.call(request)){
+                                if (request.response.result == 1) {
+                                    _logWithState("Planning successful");
                                     success = true;
                                     break;
                                 }
                             }
                         }
                         if (success) {
-                            ROS_INFO("Manipulation planning successful, switching states");
-                            currentState = State::MoveToPregrasp;
-                            // currentState = State::WaitForCoarseEstimate;
+                            _logWithState("Gripper pregrasp planning successful, switching states");
+                            currentState = State::MoveGripperToPregrasp;
                         } else {
-                            ROS_INFO("Manipulation planning failed");
+                            _logWithState("Gripper pregrasp planning failed");
                             // currentState = State::Error;
+                            currentState = State::WaitForCoarseEstimate;
                         }
                         break;
                     }
-                    case State::MoveToPregrasp:
+                    case State::MoveGripperToPregrasp:
                     {
-                        //Send service call for manipulation to execute
-                        ROS_INFO("Sending execute command to manipulation module");
-                        //something something service call for execution
-                        vader_msgs::SingleArmExecutionRequest srv;
-                        srv.request.execute = 1;
-                        if (singleArmExecClient.call(srv)) {
-                            if (srv.response.result == 1) {
-                                ROS_INFO("Manipulation execution successful, switching states");
-                                currentState = State::WaitForFineEstimate;
-                                // estimate = nullptr;
-                            } else {
-                                ROS_INFO("Manipulation execution failed, switching states");
-                                currentState = State::Error;
-                            }
-                        } else {
-                            ROS_INFO("Manipulation execution failed, switching states");
-                            currentState = State::Error;
-                        }
-                        break;
-                    }
-                    case State::WaitForFineEstimate: 
-                    {
-                        //wait for a perception fine estimate to be published
-                        // ROS_INFO("Waiting for fine estimate");
-                        // if (estimate != nullptr) {
-                        //     ROS_INFO("Fine estimate received, switching states");
-                            currentState = State::PlanToGrasp;
-                        // }
-                        // break;
-                    }
-                    case State::PlanToGrasp:
-                    {
-                        //send the fine estimate to the manipulation module
-                        ROS_INFO("Sending fine estimate to manipulation module");
-                        //something something service call for planning
+                        int NUM_EXEC_TRIES = 3;
                         bool success = false;
-                        int NUM_TRIES = 3;
-                        for (int i = 0; i < NUM_TRIES; i++) {
-                            vader_msgs::SingleArmPlanRequest srv;
-                            srv.request.pepper = *estimate;
-                            if (singleArmPlanFinalClient.call(srv)) {
-                                if (srv.response.result == 1) {
+                        vader_msgs::BimanualExecRequest request;
+                        request.request.mode = request.request.GRIPPER_PREGRASP_EXEC;
+                        for (int i = 0; i < NUM_EXEC_TRIES; i++) {
+                            if (execClient.call(request)){
+                                if (request.response.result == 1) {
+                                    _logWithState("Execution successful");
                                     success = true;
                                     break;
                                 }
                             }
                         }
                         if (success) {
-                            ROS_INFO("Manipulation planning successful, switching states");
-                            currentState = State::MoveToGrasp;
+                            _logWithState("Gripper pregrasp execution successful, switching states");
+                            currentState = State::WaitForFineEstimate;
                         } else {
-                            ROS_INFO("Manipulation planning failed");
-                            // currentState = State::Error;
-                        }
-                        break;
-                    }
-                    case State::MoveToGrasp:
-                    {
-                        //Send service call for manipulation to execute
-                        ROS_INFO("Sending execute command to manipulation module");
-                        //something something service call for execution
-                        vader_msgs::SingleArmExecutionRequest srv;
-                        srv.request.execute = 1;
-                        if (singleArmExecFinalClient.call(srv)) {
-                            if (srv.response.result == 1) {
-                                ROS_INFO("Manipulation execution successful, switching states");
-                                currentState = State::GripperHarvest;
-                            } else {
-                                ROS_INFO("Manipulation execution failed, switching states");
-                                currentState = State::Error;
-                            }
-                        } else {
-                            ROS_INFO("Manipulation execution failed, switching states");
+                            _logWithState("Gripper pregrasp execution failed");
                             currentState = State::Error;
                         }
                         break;
                     }
-                    case State::GripperHarvest:
+                    case State::WaitForFineEstimate:
                     {
-                        vader_msgs::GripperCommand gripperCommand;
-                        gripperCommand.open_pct = 0;
-                        gripperCommandPub.publish(gripperCommand);
-                        ROS_INFO("Gripper close command published, waiting ten seconds"); //this is when we manually cut wire
-                        ros::Duration(10.0).sleep();
-                        currentState = State::GripperRelease;
+                        if (fineEstimate != nullptr) {
+                            _logWithState("Fine estimate received, switching states");
+                            currentState = State::PlanGripperToGrasp;
+                        } else {
+                            _logWithState("Waiting for fine estimate");
+                        }
                         break;
                     }
-                    // case State::PlanAndMoveToBin:
+                    case State::PlanGripperToGrasp:
+                    {
+                        int NUM_PLAN_TRIES = 3;
+                        bool success = false;
+                        vader_msgs::BimanualPlanRequest request;
+                        request.request.mode = request.request.GRIPPER_GRASP_PLAN;
+                        request.request.reserve_dist = 0.1;
+                        request.request.pepper = *fineEstimate;
+                        for (int i = 0; i < NUM_PLAN_TRIES; i++) {
+                            if (planClient.call(request)){
+                                if (request.response.result == 1) {
+                                    _logWithState("Planning successful");
+                                    success = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (success) {
+                            _logWithState("Gripper grasp planning successful, switching states");
+                            currentState = State::MoveGripperToGrasp;
+                        } else {
+                            _logWithState("Gripper grasp planning failed");
+                            currentState = State::Error;
+                        }
+                        break;
+                    }
+                    case State::MoveGripperToGrasp:
+                    {
+                        int NUM_EXEC_TRIES = 3;
+                        bool success = false;
+                        vader_msgs::BimanualExecRequest request;
+                        request.request.mode = request.request.GRIPPER_GRASP_EXEC;
+                        for (int i = 0; i < NUM_EXEC_TRIES; i++) {
+                            if (execClient.call(request)){
+                                if (request.response.result == 1) {
+                                    _logWithState("Execution successful");
+                                    success = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (success) {
+                            _logWithState("Gripper grasp execution successful, switching states");
+                            currentState = State::GripperGrasp;
+                        } else {
+                            _logWithState("Gripper grasp execution failed");
+                            currentState = State::Error;
+                        }
+                        break;
+                    }
+                    case State::GripperGrasp:
+                    {
+                        _logWithState("Grasping fruit");
+                        _sendGripperCommand(0);
+                        ros::Duration(1.0).sleep();
+                        currentState = State::PlanCutterToGrasp;
+                        break;
+                    }
+                    // case State::PlanCutterToGrasp:
                     // {
-                    //     vader_msgs::Pepper* bin_pepper = new vader_msgs::Pepper();
-                    //     bin_pepper->fruit_data.pose.position.x = 0.5;
-                    //     bin_pepper->fruit_data.pose.position.y = 0.5;
-                    //     bin_pepper->fruit_data.pose.position.z = 0.5;
-                    //     bin_pepper->fruit_data.pose.orientation.x = 1.0;
-                    //     bin_pepper->fruit_data.pose.orientation.y = 0.0;
-                    //     bin_pepper->fruit_data.pose.orientation.z = 0.0;
-                    //     bin_pepper->fruit_data.pose.orientation.w = 0.0;
-                        //TODO which message do we use
+                    //     int NUM_PLAN_TRIES = 1;
+                    //     bool success = false;
+                    //     vader_msgs::BimanualPlanRequest request;
+                    //     request.request.mode = request.request.CUTTER_GRASP_PLAN;
+                    //     request.request.reserve_dist = 0.2;//0.04;
+                    //     request.request.pepper = *fineEstimate;
+                    //     for (int i = 0; i < NUM_PLAN_TRIES; i++) {
+                    //         if (planClient.call(request)){
+                    //             if (request.response.result == 1) {
+                    //                 _logWithState("Planning successful");
+                    //                 success = true;
+                    //                 break;
+                    //             }
+                    //         }
+                    //     }
+                    //     if (success) {
+                    //         _logWithState("Cutter pregrasp planning successful, switching states");
+                    //         currentState = State::MoveCutterToGrasp;
+                    //     } else {
+                    //         _logWithState("Cutter pregrasp planning failed");
+                    //         currentState = State::Error;
+                    //     }
+                    //     break;
                     // }
+                    // case State::MoveCutterToGrasp:
+                    // {
+                    //     int NUM_EXEC_TRIES = 3;
+                    //     bool success = false;
+                    //     vader_msgs::BimanualExecRequest request;
+                    //     request.request.mode = request.request.CUTTER_GRASP_EXEC;
+                    //     for (int i = 0; i < NUM_EXEC_TRIES; i++) {
+                    //         if (execClient.call(request)){
+                    //             if (request.response.result == 1) {
+                    //                 _logWithState("Execution successful");
+                    //                 success = true;
+                    //                 break;
+                    //             }
+                    //         }
+                    //     }
+                    //     if (success) {
+                    //         _logWithState("Cutter pregrasp execution successful, switching states");
+                    //         currentState = State::CutterGrasp;
+                    //     } else {
+                    //         _logWithState("Cutter pregrasp execution failed");
+                    //         currentState = State::Error;
+                    //     }
+                    //     break;
+                    // }
+                    // case State::CutterGrasp:
+                    // {
+                    //     int NUM_CUTS = 2;
+                    //     _logWithState("Cutting peduncle");
+                    //     for (int i = 0; i < NUM_CUTS; i++) {
+                    //         _sendCutterCommand(0);
+                    //         ros::Duration(1.0).sleep();
+                    //         _sendCutterCommand(100);
+                    //         ros::Duration(1.0).sleep();
+                    //     }
+
+                    //     currentState = State::PlanAndMoveToBin;
+                    //     break;
+                    // }
+                    case State::PlanAndMoveToBin:
+                    {
+                        int NUM_EXEC_TRIES = 3;
+                        bool success = false;
+                        vader_msgs::MoveToStorageRequest request;
+                        request.request.reserve_dist = 0.2;
+                        request.request.binLocation = *storageBinLocation;
+                        for (int i = 0; i < NUM_EXEC_TRIES; i++) {
+                            if (moveToStorageClient.call(request)){
+                                if (request.response.result == 1) {
+                                    _logWithState("Execution successful");
+                                    success = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (success) {
+                            _logWithState("Move to bin execution successful, switching states");
+                            currentState = State::GripperRelease;
+                        } else {
+                            _logWithState("Move to bin execution failed");
+                            currentState = State::Error;
+                        }
+                        break;
+                    }
                     case State::GripperRelease:
                     {
-                        vader_msgs::GripperCommand gripperCommand;
-                        gripperCommand.open_pct = 100;
-                        gripperCommandPub.publish(gripperCommand);
-                        ROS_INFO("Gripper open command published");
+                        _logWithState("Releasing gripper");
+                        _sendGripperCommand(100);
                         currentState = State::Done;
                         break;
                     }
                     case State::Done:
                     {    
-                        ROS_INFO("Done");
+                        // ROS_INFO("Done");
                         break;
                     }
                     case State::Error:
                     {
-                        ROS_INFO("Error");
+                        // ROS_INFO("Error");
                         break;
                     }
 

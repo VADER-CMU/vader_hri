@@ -5,8 +5,6 @@
 #include "vader_msgs/Pepper.h"
 #include "vader_msgs/SingleArmPlanRequest.h"
 #include "vader_msgs/SingleArmExecutionRequest.h"
-#include "vader_msgs/BimanualPlanRequest.h"
-#include "vader_msgs/BimanualExecRequest.h"
 #include "vader_msgs/MoveToStorageRequest.h"
 #include "vader_msgs/GripperCommand.h"
 #include "vader_msgs/CutterCommand.h"
@@ -33,14 +31,11 @@ class VADERStateMachine {
         PlanGripperToGrasp,
         MoveGripperToGrasp,
         GripperGrasp,
-        // ------------Harvest stage-----------
-        PlanCutterToGrasp,
-        MoveCutterToGrasp,
-        CutterGrasp,
         // -----------Finish and cleanup-----------
         PlanAndMoveToBin,
         GripperRelease,
         Done,
+        Home,
         Error
     };
 
@@ -53,6 +48,8 @@ class VADERStateMachine {
     vader_msgs::Pepper* fineEstimate;
     geometry_msgs::Pose* storageBinLocation; //only the fruit pose is used to designate storage bin location.
 
+    geometry_msgs::Pose* homeLocation;
+
     //Plan/Exec clients connecting to planner
     ros::ServiceClient planClient, execClient;
     ros::ServiceClient moveToStorageClient;
@@ -64,7 +61,7 @@ class VADERStateMachine {
     Input: cameraFrameMsg containing the pose of the fruit in the camera frame from the coarse/fine pepper estimate
     Output: result containing the pose of the fruit in the world frame using TF2.
     */
-    void _transformFromCameraFrameIntoRobotFrame(const vader_msgs::Pepper::ConstPtr& cameraFrameMsg, vader_msgs::Pepper* result) {
+    void _transformFromCameraFrameIntoRobotFrame(const vader_msgs::Pepper::ConstPtr& cameraFrameMsg, vader_msgs::Pepper* result, bool isCoarse) {
         tf2_ros::Buffer tf_buffer;
         tf2_ros::TransformListener tf_listener(tf_buffer); 
         geometry_msgs::PoseStamped fruit_pose;
@@ -86,9 +83,9 @@ class VADERStateMachine {
         peduncle_pose.pose.orientation.w = cameraFrameMsg->peduncle_data.pose.orientation.w;
         //TODO when peduncle data is published, do the same transform
 
-        // ROS_INFO("CAMERA FRAME TF: x=%f, y=%f, z=%f, q_x=%f, q_y=%f, q_z=%f, q_w=%f",
-        //     fruit_pose.pose.position.x, fruit_pose.pose.position.y, fruit_pose.pose.position.z,
-        //     fruit_pose.pose.orientation.x, fruit_pose.pose.orientation.y, fruit_pose.pose.orientation.z, fruit_pose.pose.orientation.w );
+        ROS_INFO("CAMERA FRAME TF: x=%f, y=%f, z=%f, q_x=%f, q_y=%f, q_z=%f, q_w=%f",
+            fruit_pose.pose.position.x, fruit_pose.pose.position.y, fruit_pose.pose.position.z,
+            fruit_pose.pose.orientation.x, fruit_pose.pose.orientation.y, fruit_pose.pose.orientation.z, fruit_pose.pose.orientation.w );
         fruit_pose.header.frame_id = cameraFrameMsg->header.frame_id;
         peduncle_pose.header.frame_id = cameraFrameMsg->header.frame_id;
 
@@ -103,10 +100,10 @@ class VADERStateMachine {
                 "link_base", 
                 ros::Duration(3.0)
             );
-            // ROS_INFO("Transformed pose: x=%f, y=%f, z=%f", 
-            //          transformed_pose.pose.position.x,
-            //          transformed_pose.pose.position.y,
-                    //  transformed_pose.pose.position.z);
+            ROS_INFO("Transformed pose: x=%f, y=%f, z=%f", 
+                     transformed_pose.pose.position.x,
+                     transformed_pose.pose.position.y,
+                     transformed_pose.pose.position.z);
             result->fruit_data.pose.position.x = transformed_pose.pose.position.x;
             result->fruit_data.pose.position.y = transformed_pose.pose.position.y;
             result->fruit_data.pose.position.z = transformed_pose.pose.position.z;
@@ -128,6 +125,17 @@ class VADERStateMachine {
             result->peduncle_data.shape.dimensions.resize(2);
             result->peduncle_data.shape.dimensions[0] = cameraFrameMsg->peduncle_data.shape.dimensions[0];
             result->peduncle_data.shape.dimensions[1] = cameraFrameMsg->peduncle_data.shape.dimensions[1];
+
+            if(isCoarse){
+                result->fruit_data.pose.orientation.x = 0;
+                result->fruit_data.pose.orientation.y = 0;
+                result->fruit_data.pose.orientation.z = 0;
+                result->fruit_data.pose.orientation.w = 1;
+                result->peduncle_data.pose.orientation.x = 0;
+                result->peduncle_data.pose.orientation.y = 0;
+                result->peduncle_data.pose.orientation.z = 0;
+                result->peduncle_data.pose.orientation.w = 1;
+            }
 
           } 
         catch (tf2::TransformException &ex) {
@@ -153,38 +161,6 @@ class VADERStateMachine {
         ROS_INFO_STREAM("[" << currentState << "]: " << message);
     }
 
-    bool _callPlannerService(ros::ServiceClient* client, const vader_msgs::Pepper& _estimate) {
-        vader_msgs::SingleArmPlanRequest srv;
-        srv.request.pepper = _estimate;
-        if (client->call(srv)) {
-            if (srv.response.result == 1) {
-                _logWithState("Planning successful");
-                return true;
-            } else {
-                _logWithState("Planning failed");
-            }
-        } else {
-            _logWithState("Planner service call failed");
-        }
-        return false;
-    }
-
-    bool _callExecutorService(ros::ServiceClient* client) {
-        vader_msgs::SingleArmExecutionRequest srv;
-        srv.request.execute = 1;
-        if (client->call(srv)) {
-            if (srv.response.result == 1) {
-                _logWithState("Execution successful");
-                return true;
-            } else {
-                _logWithState("Execution failed");
-            }
-        } else {
-            _logWithState("Executor service call failed");
-        }
-        return false;
-    }
-
     public:
         VADERStateMachine() : currentState(State::WaitForCoarseEstimate){
             coarseEstimate = nullptr;
@@ -192,17 +168,18 @@ class VADERStateMachine {
             fineEstimate = nullptr;
             fineEstimateSub = n.subscribe("/fruit_fine_pose", 10, fineEstimateCallback);
 
-
-            // pregraspGripperPlanClient   = n.serviceClient<vader_msgs::SingleArmPlanRequest>("gripperArmPregraspPlan");
-            // pregraspGripperExecClient   = n.serviceClient<vader_msgs::SingleArmExecutionRequest>("gripperArmPregraspExec");
-            // graspGripperPlanClient      = n.serviceClient<vader_msgs::SingleArmPlanRequest>("gripperArmGraspPlan");
-            // graspGripperExecClient      = n.serviceClient<vader_msgs::SingleArmExecutionRequest>("gripperArmGraspExec");
-            // graspCutterPlanClient       = n.serviceClient<vader_msgs::SingleArmPlanRequest>("cutterArmGraspPlan");
-            // graspCutterExecClient       = n.serviceClient<vader_msgs::SingleArmExecutionRequest>("cutterArmGraspExec");
-            // planAndMoveToBinClient      = n.serviceClient<vader_msgs::SingleArmPlanRequest>("planAndMoveToBin");
-            planClient = n.serviceClient<vader_msgs::BimanualPlanRequest>("vader_plan");
-            execClient = n.serviceClient<vader_msgs::BimanualExecRequest>("vader_exec");
+            planClient = n.serviceClient<vader_msgs::SingleArmPlanRequest>("vader_plan");
+            execClient = n.serviceClient<vader_msgs::SingleArmExecutionRequest>("vader_exec");
             moveToStorageClient = n.serviceClient<vader_msgs::MoveToStorageRequest>("move_to_storage");
+
+            homeLocation =  new geometry_msgs::Pose();
+            homeLocation->position.x = -0.05;
+            homeLocation->position.y = -0.05;
+            homeLocation->position.z = 0.61;
+            homeLocation->orientation.x = -0.5795175;
+            homeLocation->orientation.y = 0.4892354;
+            homeLocation->orientation.z = 0.110828;
+            homeLocation->orientation.w = 0.6422813;
 
 
             storageBinLocation = new geometry_msgs::Pose();
@@ -227,17 +204,21 @@ class VADERStateMachine {
         }
 
         void setCoarsePoseEstimate(const vader_msgs::Pepper::ConstPtr& msg) {
-            coarseEstimate = new vader_msgs::Pepper();
-            coarseEstimate->header = msg->header;
-            _transformFromCameraFrameIntoRobotFrame(msg, coarseEstimate);
-            // _logWithState("Coarse estimate received");
+            if(currentState == State::WaitForCoarseEstimate){
+                coarseEstimate = new vader_msgs::Pepper();
+                coarseEstimate->header = msg->header;
+                _transformFromCameraFrameIntoRobotFrame(msg, coarseEstimate, true);
+                _logWithState("Coarse estimate received");
+            }
         }
     
         void setFinePoseEstimate(const vader_msgs::Pepper::ConstPtr& msg) {
-            fineEstimate = new vader_msgs::Pepper();
-            fineEstimate->header = msg->header;
-            _transformFromCameraFrameIntoRobotFrame(msg, fineEstimate);
-            // _logWithState("Fine estimate received");
+            if(currentState == State::WaitForFineEstimate){
+                fineEstimate = new vader_msgs::Pepper();
+                fineEstimate->header = msg->header;
+                _transformFromCameraFrameIntoRobotFrame(msg, fineEstimate, false);
+                _logWithState("Fine estimate received");
+            }
         }
     
         void execute() {
@@ -258,7 +239,7 @@ class VADERStateMachine {
                     {
                         int NUM_PLAN_TRIES = 3;
                         bool success = false;
-                        vader_msgs::BimanualPlanRequest request;
+                        vader_msgs::SingleArmPlanRequest request;
                         request.request.mode = request.request.GRIPPER_PREGRASP_PLAN;
                         request.request.pepper = *coarseEstimate;
                         request.request.reserve_dist = 0.2;
@@ -284,9 +265,9 @@ class VADERStateMachine {
                     }
                     case State::MoveGripperToPregrasp:
                     {
-                        int NUM_EXEC_TRIES = 3;
+                        int NUM_EXEC_TRIES = 1;
                         bool success = false;
-                        vader_msgs::BimanualExecRequest request;
+                        vader_msgs::SingleArmExecutionRequest request;
                         request.request.mode = request.request.GRIPPER_PREGRASP_EXEC;
                         for (int i = 0; i < NUM_EXEC_TRIES; i++) {
                             if (execClient.call(request)){
@@ -318,9 +299,10 @@ class VADERStateMachine {
                     }
                     case State::PlanGripperToGrasp:
                     {
+                        ros::Duration(5.0).sleep();
                         int NUM_PLAN_TRIES = 3;
                         bool success = false;
-                        vader_msgs::BimanualPlanRequest request;
+                        vader_msgs::SingleArmPlanRequest request;
                         request.request.mode = request.request.GRIPPER_GRASP_PLAN;
                         request.request.reserve_dist = 0.1;
                         request.request.pepper = *fineEstimate;
@@ -335,7 +317,7 @@ class VADERStateMachine {
                         }
                         if (success) {
                             _logWithState("Gripper grasp planning successful, switching states");
-                            currentState = State::MoveGripperToGrasp;
+                            currentState = State::PlanGripperToGrasp;
                         } else {
                             _logWithState("Gripper grasp planning failed");
                             currentState = State::Error;
@@ -344,9 +326,9 @@ class VADERStateMachine {
                     }
                     case State::MoveGripperToGrasp:
                     {
-                        int NUM_EXEC_TRIES = 3;
+                        int NUM_EXEC_TRIES = 1;
                         bool success = false;
-                        vader_msgs::BimanualExecRequest request;
+                        vader_msgs::SingleArmExecutionRequest request;
                         request.request.mode = request.request.GRIPPER_GRASP_EXEC;
                         for (int i = 0; i < NUM_EXEC_TRIES; i++) {
                             if (execClient.call(request)){
@@ -370,77 +352,15 @@ class VADERStateMachine {
                     {
                         _logWithState("Grasping fruit");
                         _sendGripperCommand(0);
+                        ros::Duration(5.0).sleep();
+                        _sendGripperCommand(100);
                         ros::Duration(1.0).sleep();
-                        currentState = State::PlanCutterToGrasp;
-                        break;
-                    }
-                    case State::PlanCutterToGrasp:
-                    {
-                        int NUM_PLAN_TRIES = 1;
-                        bool success = false;
-                        vader_msgs::BimanualPlanRequest request;
-                        request.request.mode = request.request.CUTTER_GRASP_PLAN;
-                        request.request.reserve_dist = 0.2;//0.04;
-                        request.request.pepper = *fineEstimate;
-                        for (int i = 0; i < NUM_PLAN_TRIES; i++) {
-                            if (planClient.call(request)){
-                                if (request.response.result == 1) {
-                                    _logWithState("Planning successful");
-                                    success = true;
-                                    break;
-                                }
-                            }
-                        }
-                        if (success) {
-                            _logWithState("Cutter pregrasp planning successful, switching states");
-                            currentState = State::MoveCutterToGrasp;
-                        } else {
-                            _logWithState("Cutter pregrasp planning failed");
-                            currentState = State::Error;
-                        }
-                        break;
-                    }
-                    case State::MoveCutterToGrasp:
-                    {
-                        int NUM_EXEC_TRIES = 3;
-                        bool success = false;
-                        vader_msgs::BimanualExecRequest request;
-                        request.request.mode = request.request.CUTTER_GRASP_EXEC;
-                        for (int i = 0; i < NUM_EXEC_TRIES; i++) {
-                            if (execClient.call(request)){
-                                if (request.response.result == 1) {
-                                    _logWithState("Execution successful");
-                                    success = true;
-                                    break;
-                                }
-                            }
-                        }
-                        if (success) {
-                            _logWithState("Cutter pregrasp execution successful, switching states");
-                            currentState = State::CutterGrasp;
-                        } else {
-                            _logWithState("Cutter pregrasp execution failed");
-                            currentState = State::Error;
-                        }
-                        break;
-                    }
-                    case State::CutterGrasp:
-                    {
-                        int NUM_CUTS = 2;
-                        _logWithState("Cutting peduncle");
-                        for (int i = 0; i < NUM_CUTS; i++) {
-                            _sendCutterCommand(0);
-                            ros::Duration(1.0).sleep();
-                            _sendCutterCommand(100);
-                            ros::Duration(1.0).sleep();
-                        }
-
                         currentState = State::PlanAndMoveToBin;
                         break;
                     }
                     case State::PlanAndMoveToBin:
                     {
-                        int NUM_EXEC_TRIES = 3;
+                        int NUM_EXEC_TRIES = 1;
                         bool success = false;
                         vader_msgs::MoveToStorageRequest request;
                         request.request.reserve_dist = 0.2;
@@ -478,6 +398,31 @@ class VADERStateMachine {
                     case State::Error:
                     {
                         // ROS_INFO("Error");
+                        break;
+                    }
+                    case State::Home:
+                    {
+                        int NUM_EXEC_TRIES = 1;
+                        bool success = false;
+                        vader_msgs::MoveToStorageRequest request;
+                        request.request.reserve_dist = 0.2;
+                        request.request.binLocation = *homeLocation;
+                        for (int i = 0; i < NUM_EXEC_TRIES; i++) {
+                            if (moveToStorageClient.call(request)){
+                                if (request.response.result == 1) {
+                                    _logWithState("Execution successful");
+                                    success = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (success) {
+                            _logWithState("Move to bin execution successful, switching states");
+                            currentState = State::GripperRelease;
+                        } else {
+                            _logWithState("Move to bin execution failed");
+                            currentState = State::Error;
+                        }
                         break;
                     }
 
