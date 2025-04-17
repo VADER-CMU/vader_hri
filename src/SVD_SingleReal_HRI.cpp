@@ -293,7 +293,7 @@ class VADERStateMachine {
                         } else {
                             _logWithState("Gripper pregrasp planning failed");
                             // currentState = State::Error;
-                            currentState = State::WaitForCoarseEstimate;
+                            currentState = State::PlanGripperToPregrasp;
                         }
                         break;
                     }
@@ -354,21 +354,21 @@ class VADERStateMachine {
                             currentState = State::MoveGripperToGrasp;
                         } else {
                             _logWithState("Gripper grasp planning failed");
-                            currentState = State::Error;
+                            currentState = State::WaitForFineEstimate;
                         }
                         break;
                     }
                     case State::MoveGripperToGrasp:
                     {
 
-                        bool userConfirmed = getUserConfirmation(); // Get user input
-                        if (userConfirmed) {
-                            _logWithState("Confirmed");
-                        } else {
-                            _logWithState("Replanning");
-                            currentState = State::PlanGripperToGrasp;
-                            break;
-                        }
+                        // bool userConfirmed = getUserConfirmation(); // Get user input
+                        // if (userConfirmed) {
+                        //     _logWithState("Confirmed");
+                        // } else {
+                        //     _logWithState("Replanning");
+                        //     currentState = State::PlanGripperToGrasp;
+                        //     break;
+                        // }
                         int NUM_EXEC_TRIES = 1;
                         bool success = false;
                         vader_msgs::SingleArmExecutionRequest request;
@@ -396,8 +396,8 @@ class VADERStateMachine {
                         _logWithState("Grasping fruit");
                         _sendGripperCommand(0);
                         ros::Duration(5.0).sleep();
-                        _sendGripperCommand(100);
-                        ros::Duration(1.0).sleep();
+                        // _sendGripperCommand(100);
+                        // ros::Duration(1.0).sleep();
                         currentState = State::PlanAndMoveToBin;
                         break;
                     }
@@ -406,7 +406,7 @@ class VADERStateMachine {
                         int NUM_EXEC_TRIES = 3;
                         bool success = false;
                         vader_msgs::MoveToStorageRequest request;
-                        request.request.reserve_dist = 0.;
+                        request.request.reserve_dist = 0.2;
                         request.request.binLocation = *storageBinLocation;
                         for (int i = 0; i < NUM_EXEC_TRIES; i++) {
                             if (moveToStorageClient.call(request)){
