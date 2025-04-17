@@ -3,8 +3,6 @@
 #include "ros/ros.h"
 #include "std_msgs/String.h"
 #include "vader_msgs/Pepper.h"
-#include "vader_msgs/SingleArmPlanRequest.h"
-#include "vader_msgs/SingleArmExecutionRequest.h"
 #include "vader_msgs/BimanualPlanRequest.h"
 #include "vader_msgs/BimanualExecRequest.h"
 #include "vader_msgs/MoveToStorageRequest.h"
@@ -37,6 +35,7 @@ class VADERStateMachine {
         PlanCutterToGrasp,
         MoveCutterToGrasp,
         CutterGrasp,
+        RetreatCutter,
         // -----------Finish and cleanup-----------
         PlanAndMoveToBin,
         GripperRelease,
@@ -151,38 +150,6 @@ class VADERStateMachine {
 
     void _logWithState(const std::string& message) {
         ROS_INFO_STREAM("[" << currentState << "]: " << message);
-    }
-
-    bool _callPlannerService(ros::ServiceClient* client, const vader_msgs::Pepper& _estimate) {
-        vader_msgs::SingleArmPlanRequest srv;
-        srv.request.pepper = _estimate;
-        if (client->call(srv)) {
-            if (srv.response.result == 1) {
-                _logWithState("Planning successful");
-                return true;
-            } else {
-                _logWithState("Planning failed");
-            }
-        } else {
-            _logWithState("Planner service call failed");
-        }
-        return false;
-    }
-
-    bool _callExecutorService(ros::ServiceClient* client) {
-        vader_msgs::SingleArmExecutionRequest srv;
-        srv.request.execute = 1;
-        if (client->call(srv)) {
-            if (srv.response.result == 1) {
-                _logWithState("Execution successful");
-                return true;
-            } else {
-                _logWithState("Execution failed");
-            }
-        } else {
-            _logWithState("Executor service call failed");
-        }
-        return false;
     }
 
     public:
@@ -435,15 +402,39 @@ class VADERStateMachine {
                             ros::Duration(1.0).sleep();
                         }
 
-                        currentState = State::PlanAndMoveToBin;
+                        currentState = State::RetreatCutter;
+                        break;
+                    }
+                    case State::RetreatCutter:
+                    {
+                        int NUM_EXEC_TRIES = 3;
+                        bool success = false;
+                        vader_msgs::BimanualExecRequest request;
+                        request.request.mode = request.request.CUTTER_RETREAT;
+                        for (int i = 0; i < NUM_EXEC_TRIES; i++) {
+                            if (execClient.call(request)){
+                                if (request.response.result == 1) {
+                                    _logWithState("Execution successful");
+                                    success = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (success) {
+                            _logWithState("Cutter pregrasp execution successful, switching states");
+                            currentState = State::PlanAndMoveToBin;
+                        } else {
+                            _logWithState("Cutter pregrasp execution failed");
+                            currentState = State::PlanAndMoveToBin;
+                        }
                         break;
                     }
                     case State::PlanAndMoveToBin:
                     {
-                        int NUM_EXEC_TRIES = 3;
+                        int NUM_EXEC_TRIES = 5;
                         bool success = false;
                         vader_msgs::MoveToStorageRequest request;
-                        request.request.reserve_dist = 0.2;
+                        request.request.reserve_dist = 0.1;
                         request.request.binLocation = *storageBinLocation;
                         for (int i = 0; i < NUM_EXEC_TRIES; i++) {
                             if (moveToStorageClient.call(request)){

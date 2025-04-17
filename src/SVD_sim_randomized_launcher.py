@@ -8,7 +8,7 @@ def generate_poses():
     pose = {
         "x": round(random.uniform(0.25, 0.45), 2),
         "y": round(random.uniform(-0.45, -0.65), 2),
-        "z": round(random.uniform(0.3, 0.5), 2),
+        "z": round(random.uniform(0.4, 0.6), 2),
         "roll": round(random.uniform(-0.5, 0.5), 2),
         "pitch": round(random.uniform(-0.5, 0.5), 2)
         # "x": 0.25,
