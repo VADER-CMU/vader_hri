@@ -6,6 +6,7 @@
 #include "vader_msgs/SingleArmPlanRequest.h"
 #include "vader_msgs/SingleArmExecutionRequest.h"
 #include "vader_msgs/MoveToStorageRequest.h"
+#include "vader_msgs/GoHomeRequest.h"
 #include "vader_msgs/GripperCommand.h"
 #include "vader_msgs/CutterCommand.h"
 
@@ -48,11 +49,12 @@ class VADERStateMachine {
     vader_msgs::Pepper* fineEstimate;
     geometry_msgs::Pose* storageBinLocation; //only the fruit pose is used to designate storage bin location.
 
-    geometry_msgs::Pose* homeLocation;
+    // geometry_msgs::Pose* homeLocation;
 
     //Plan/Exec clients connecting to planner
     ros::ServiceClient planClient, execClient;
     ros::ServiceClient moveToStorageClient;
+    ros::ServiceClient goHomeClient;
 
     //End effector talking to dynamixel node
     ros::Publisher gripperCommandPub, cutterCommandPub;
@@ -171,16 +173,7 @@ class VADERStateMachine {
             planClient = n.serviceClient<vader_msgs::SingleArmPlanRequest>("vader_plan");
             execClient = n.serviceClient<vader_msgs::SingleArmExecutionRequest>("vader_exec");
             moveToStorageClient = n.serviceClient<vader_msgs::MoveToStorageRequest>("move_to_storage");
-
-            homeLocation =  new geometry_msgs::Pose();
-            homeLocation->position.x = -0.05;
-            homeLocation->position.y = -0.05;
-            homeLocation->position.z = 0.61;
-            homeLocation->orientation.x = -0.5795175;
-            homeLocation->orientation.y = 0.4892354;
-            homeLocation->orientation.z = 0.110828;
-            homeLocation->orientation.w = 0.6422813;
-
+            goHomeClient = n.serviceClient<vader_msgs::GoHomeRequest>("go_home");
 
             storageBinLocation = new geometry_msgs::Pose();
             std::string bin_xyz;
@@ -402,13 +395,13 @@ class VADERStateMachine {
                     }
                     case State::Home:
                     {
+                        ros::Duration(5.0).sleep();
                         int NUM_EXEC_TRIES = 1;
                         bool success = false;
-                        vader_msgs::MoveToStorageRequest request;
-                        request.request.reserve_dist = 0.2;
-                        request.request.binLocation = *homeLocation;
+                        vader_msgs::GoHomeRequest request;
+                        request.request.exec=true;
                         for (int i = 0; i < NUM_EXEC_TRIES; i++) {
-                            if (moveToStorageClient.call(request)){
+                            if (goHomeClient.call(request)){
                                 if (request.response.result == 1) {
                                     _logWithState("Execution successful");
                                     success = true;
@@ -418,7 +411,7 @@ class VADERStateMachine {
                         }
                         if (success) {
                             _logWithState("Move to bin execution successful, switching states");
-                            currentState = State::GripperRelease;
+                            currentState = State::Done;
                         } else {
                             _logWithState("Move to bin execution failed");
                             currentState = State::Error;
