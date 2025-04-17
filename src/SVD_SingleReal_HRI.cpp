@@ -85,9 +85,9 @@ class VADERStateMachine {
         peduncle_pose.pose.orientation.w = cameraFrameMsg->peduncle_data.pose.orientation.w;
         //TODO when peduncle data is published, do the same transform
 
-        ROS_INFO("CAMERA FRAME TF: x=%f, y=%f, z=%f, q_x=%f, q_y=%f, q_z=%f, q_w=%f",
-            fruit_pose.pose.position.x, fruit_pose.pose.position.y, fruit_pose.pose.position.z,
-            fruit_pose.pose.orientation.x, fruit_pose.pose.orientation.y, fruit_pose.pose.orientation.z, fruit_pose.pose.orientation.w );
+        // ROS_INFO("CAMERA FRAME TF: x=%f, y=%f, z=%f, q_x=%f, q_y=%f, q_z=%f, q_w=%f",
+        //     fruit_pose.pose.position.x, fruit_pose.pose.position.y, fruit_pose.pose.position.z,
+        //     fruit_pose.pose.orientation.x, fruit_pose.pose.orientation.y, fruit_pose.pose.orientation.z, fruit_pose.pose.orientation.w );
         fruit_pose.header.frame_id = cameraFrameMsg->header.frame_id;
         peduncle_pose.header.frame_id = cameraFrameMsg->header.frame_id;
 
@@ -102,10 +102,10 @@ class VADERStateMachine {
                 "link_base", 
                 ros::Duration(3.0)
             );
-            ROS_INFO("Transformed pose: x=%f, y=%f, z=%f", 
-                     transformed_pose.pose.position.x,
-                     transformed_pose.pose.position.y,
-                     transformed_pose.pose.position.z);
+            // ROS_INFO("Transformed pose: x=%f, y=%f, z=%f", 
+            //          transformed_pose.pose.position.x,
+            //          transformed_pose.pose.position.y,
+            //          transformed_pose.pose.position.z);
             result->fruit_data.pose.position.x = transformed_pose.pose.position.x;
             result->fruit_data.pose.position.y = transformed_pose.pose.position.y;
             result->fruit_data.pose.position.z = transformed_pose.pose.position.z;
@@ -164,7 +164,7 @@ class VADERStateMachine {
     }
 
     public:
-        VADERStateMachine() : currentState(State::WaitForCoarseEstimate){
+        VADERStateMachine() : currentState(State::Home){
             coarseEstimate = nullptr;
             coarseEstimateSub = n.subscribe("/fruit_coarse_pose", 10, coarseEstimateCallback);
             fineEstimate = nullptr;
@@ -218,6 +218,31 @@ class VADERStateMachine {
             ros::Rate loop_rate(10);
             while (ros::ok()) {
                 switch (currentState) {
+                    case State::Home:
+                    {
+                        ros::Duration(5.0).sleep();
+                        int NUM_EXEC_TRIES = 1;
+                        bool success = false;
+                        vader_msgs::GoHomeRequest request;
+                        request.request.exec=true;
+                        for (int i = 0; i < NUM_EXEC_TRIES; i++) {
+                            if (goHomeClient.call(request)){
+                                if (request.response.result == 1) {
+                                    _logWithState("Execution successful");
+                                    success = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (success) {
+                            _logWithState("Move to bin execution successful, switching states");
+                            currentState = State::WaitForCoarseEstimate;
+                        } else {
+                            _logWithState("Move to bin execution failed");
+                            currentState = State::Error;
+                        }
+                        break;
+                    }
                     case State::WaitForCoarseEstimate:
                     {
                         if (coarseEstimate != nullptr) {
@@ -248,7 +273,7 @@ class VADERStateMachine {
                         }
                         if (success) {
                             _logWithState("Gripper pregrasp planning successful, switching states");
-                            currentState = State::MoveGripperToPregrasp;
+                            currentState = State::WaitForCoarseEstimate;
                         } else {
                             _logWithState("Gripper pregrasp planning failed");
                             // currentState = State::Error;
@@ -369,7 +394,7 @@ class VADERStateMachine {
                         }
                         if (success) {
                             _logWithState("Move to bin execution successful, switching states");
-                            currentState = State::GripperRelease;
+                            currentState = State::Done;
                         } else {
                             _logWithState("Move to bin execution failed");
                             currentState = State::Error;
@@ -393,31 +418,7 @@ class VADERStateMachine {
                         // ROS_INFO("Error");
                         break;
                     }
-                    case State::Home:
-                    {
-                        ros::Duration(5.0).sleep();
-                        int NUM_EXEC_TRIES = 1;
-                        bool success = false;
-                        vader_msgs::GoHomeRequest request;
-                        request.request.exec=true;
-                        for (int i = 0; i < NUM_EXEC_TRIES; i++) {
-                            if (goHomeClient.call(request)){
-                                if (request.response.result == 1) {
-                                    _logWithState("Execution successful");
-                                    success = true;
-                                    break;
-                                }
-                            }
-                        }
-                        if (success) {
-                            _logWithState("Move to bin execution successful, switching states");
-                            currentState = State::Done;
-                        } else {
-                            _logWithState("Move to bin execution failed");
-                            currentState = State::Error;
-                        }
-                        break;
-                    }
+                    
 
                 }
                 ros::spinOnce();

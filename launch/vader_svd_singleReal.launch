@@ -1,5 +1,6 @@
 <launch>
-    <arg name="bin_center_xyz" value="0.31 0.4 0.4"/>
+    <arg name="bin_center_xyz" value="0.35 0.35 0.2"/>
+    <param name="bin_xyz" value="$(arg bin_center_xyz)" />
 
     <!-- TF -->
     <node pkg="vader_planner" type="cam_transform_publisher.py" name="tform"/>
