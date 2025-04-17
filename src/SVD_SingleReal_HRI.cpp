@@ -67,8 +67,8 @@ class VADERStateMachine {
         tf2_ros::Buffer tf_buffer;
         tf2_ros::TransformListener tf_listener(tf_buffer); 
         geometry_msgs::PoseStamped fruit_pose;
-        fruit_pose.pose.position.x = -cameraFrameMsg->fruit_data.pose.position.y; 
-        fruit_pose.pose.position.y = cameraFrameMsg->fruit_data.pose.position.x;
+        fruit_pose.pose.position.x = cameraFrameMsg->fruit_data.pose.position.x; 
+        fruit_pose.pose.position.y = cameraFrameMsg->fruit_data.pose.position.y;
         fruit_pose.pose.position.z = cameraFrameMsg->fruit_data.pose.position.z;
         fruit_pose.pose.orientation.x = cameraFrameMsg->fruit_data.pose.orientation.x;
         fruit_pose.pose.orientation.y = cameraFrameMsg->fruit_data.pose.orientation.y;
@@ -76,8 +76,8 @@ class VADERStateMachine {
         fruit_pose.pose.orientation.w = cameraFrameMsg->fruit_data.pose.orientation.w;
 
         geometry_msgs::PoseStamped peduncle_pose;
-        peduncle_pose.pose.position.x = -cameraFrameMsg->peduncle_data.pose.position.y;
-        peduncle_pose.pose.position.y = cameraFrameMsg->peduncle_data.pose.position.x;
+        peduncle_pose.pose.position.x = cameraFrameMsg->peduncle_data.pose.position.x;
+        peduncle_pose.pose.position.y = cameraFrameMsg->peduncle_data.pose.position.y;
         peduncle_pose.pose.position.z = cameraFrameMsg->peduncle_data.pose.position.z;
         peduncle_pose.pose.orientation.x = cameraFrameMsg->peduncle_data.pose.orientation.x;
         peduncle_pose.pose.orientation.y = cameraFrameMsg->peduncle_data.pose.orientation.y;
@@ -162,6 +162,22 @@ class VADERStateMachine {
     void _logWithState(const std::string& message) {
         ROS_INFO_STREAM("[" << currentState << "]: " << message);
     }
+    
+    // Add this function to handle user input
+    bool getUserConfirmation() {
+        char input;
+        std::cout << "Enter 'y' for yes or 'n' for no: ";
+        std::cin >> input;
+
+        if (input == 'y' || input == 'Y') {
+            return true;
+        } else if (input == 'n' || input == 'N') {
+            return false;
+        } else {
+            std::cout << "Invalid input. Defaulting to 'no'." << std::endl;
+            return false;
+        }
+    }
 
     public:
         VADERStateMachine() : currentState(State::Home){
@@ -220,7 +236,7 @@ class VADERStateMachine {
                 switch (currentState) {
                     case State::Home:
                     {
-                        ros::Duration(5.0).sleep();
+                        ros::Duration(10.0).sleep();
                         int NUM_EXEC_TRIES = 1;
                         bool success = false;
                         vader_msgs::GoHomeRequest request;
@@ -260,7 +276,7 @@ class VADERStateMachine {
                         vader_msgs::SingleArmPlanRequest request;
                         request.request.mode = request.request.GRIPPER_PREGRASP_PLAN;
                         request.request.pepper = *coarseEstimate;
-                        request.request.reserve_dist = 0.2;
+                        request.request.reserve_dist = 0.1;
                         request.request.gripper_camera_rotation = request.request.GRIPPER_DO_ROTATE_CAMERA;
                         for (int i = 0; i < NUM_PLAN_TRIES; i++) {
                             if (planClient.call(request)){
@@ -273,7 +289,7 @@ class VADERStateMachine {
                         }
                         if (success) {
                             _logWithState("Gripper pregrasp planning successful, switching states");
-                            currentState = State::WaitForCoarseEstimate;
+                            currentState = State::MoveGripperToPregrasp;
                         } else {
                             _logWithState("Gripper pregrasp planning failed");
                             // currentState = State::Error;
@@ -317,7 +333,7 @@ class VADERStateMachine {
                     }
                     case State::PlanGripperToGrasp:
                     {
-                        ros::Duration(5.0).sleep();
+                        ros::Duration(3.0).sleep();
                         int NUM_PLAN_TRIES = 3;
                         bool success = false;
                         vader_msgs::SingleArmPlanRequest request;
@@ -335,7 +351,7 @@ class VADERStateMachine {
                         }
                         if (success) {
                             _logWithState("Gripper grasp planning successful, switching states");
-                            currentState = State::PlanGripperToGrasp;
+                            currentState = State::MoveGripperToGrasp;
                         } else {
                             _logWithState("Gripper grasp planning failed");
                             currentState = State::Error;
@@ -344,6 +360,15 @@ class VADERStateMachine {
                     }
                     case State::MoveGripperToGrasp:
                     {
+
+                        bool userConfirmed = getUserConfirmation(); // Get user input
+                        if (userConfirmed) {
+                            _logWithState("Confirmed");
+                        } else {
+                            _logWithState("Replanning");
+                            currentState = State::PlanGripperToGrasp;
+                            break;
+                        }
                         int NUM_EXEC_TRIES = 1;
                         bool success = false;
                         vader_msgs::SingleArmExecutionRequest request;
@@ -378,10 +403,10 @@ class VADERStateMachine {
                     }
                     case State::PlanAndMoveToBin:
                     {
-                        int NUM_EXEC_TRIES = 1;
+                        int NUM_EXEC_TRIES = 3;
                         bool success = false;
                         vader_msgs::MoveToStorageRequest request;
-                        request.request.reserve_dist = 0.2;
+                        request.request.reserve_dist = 0.;
                         request.request.binLocation = *storageBinLocation;
                         for (int i = 0; i < NUM_EXEC_TRIES; i++) {
                             if (moveToStorageClient.call(request)){
@@ -394,10 +419,10 @@ class VADERStateMachine {
                         }
                         if (success) {
                             _logWithState("Move to bin execution successful, switching states");
-                            currentState = State::Done;
+                            currentState = State::GripperRelease;
                         } else {
                             _logWithState("Move to bin execution failed");
-                            currentState = State::Error;
+                            currentState = State::PlanAndMoveToBin;
                         }
                         break;
                     }
