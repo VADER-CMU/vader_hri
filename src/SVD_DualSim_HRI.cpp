@@ -362,7 +362,7 @@ class VADERStateMachine {
                             currentState = State::GripperGrasp;
                         } else {
                             _logWithState("Gripper grasp execution failed");
-                            currentState = State::Error;
+                            currentState = State::GripperGrasp;
                         }
                         break;
                     }
@@ -376,7 +376,7 @@ class VADERStateMachine {
                     }
                     case State::PlanCutterToGrasp:
                     {
-                        int NUM_PLAN_TRIES = 1;
+                        int NUM_PLAN_TRIES = 3;
                         bool success = false;
                         vader_msgs::BimanualPlanRequest request;
                         request.request.mode = request.request.CUTTER_GRASP_PLAN;
@@ -420,7 +420,7 @@ class VADERStateMachine {
                             currentState = State::CutterGrasp;
                         } else {
                             _logWithState("Cutter pregrasp execution failed");
-                            currentState = State::Error;
+                            currentState = State::CutterGrasp;
                         }
                         break;
                     }
@@ -459,7 +459,7 @@ class VADERStateMachine {
                             currentState = State::GripperRelease;
                         } else {
                             _logWithState("Move to bin execution failed");
-                            currentState = State::Error;
+                            currentState = State::GripperRelease;
                         }
                         break;
                     }
