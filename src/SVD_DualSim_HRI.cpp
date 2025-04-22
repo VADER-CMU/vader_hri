@@ -6,6 +6,7 @@
 #include "vader_msgs/BimanualPlanRequest.h"
 #include "vader_msgs/BimanualExecRequest.h"
 #include "vader_msgs/MoveToStorageRequest.h"
+#include "vader_msgs/GoHomeRequest.h"
 #include "vader_msgs/GripperCommand.h"
 #include "vader_msgs/CutterCommand.h"
 
@@ -42,6 +43,8 @@ private:
         PlanAndMoveToBin,
         GripperRelease,
         Done,
+        HomeGripper,
+        HomeCutter,
         Error
     };
 
@@ -57,6 +60,7 @@ private:
     // Plan/Exec clients connecting to planner
     ros::ServiceClient planClient, execClient;
     ros::ServiceClient moveToStorageClient;
+    ros::ServiceClient goHomeClient;
 
     // End effector talking to dynamixel node
     ros::Publisher gripperCommandPub, cutterCommandPub;
@@ -165,6 +169,7 @@ public:
         planClient = n.serviceClient<vader_msgs::BimanualPlanRequest>("vader_plan");
         execClient = n.serviceClient<vader_msgs::BimanualExecRequest>("vader_exec");
         moveToStorageClient = n.serviceClient<vader_msgs::MoveToStorageRequest>("move_to_storage");
+        goHomeClient = n.serviceClient<vader_msgs::GoHomeRequest>("go_home");
 
         storageBinLocation = new geometry_msgs::Pose();
         std::string bin_xyz;
@@ -210,6 +215,68 @@ public:
         {
             switch (currentState)
             {
+            case State::HomeGripper:
+            {
+                ros::Duration(10.0).sleep();
+                int NUM_EXEC_TRIES = 1;
+                bool success = false;
+                vader_msgs::GoHomeRequest request;
+                request.request.is_gripper = true;
+                for (int i = 0; i < NUM_EXEC_TRIES; i++)
+                {
+                    if (goHomeClient.call(request))
+                    {
+                        if (request.response.result == 1)
+                        {
+                            _logWithState("Execution successful");
+                            success = true;
+                            break;
+                        }
+                    }
+                }
+                if (success)
+                {
+                    _logWithState("Move to bin execution successful, switching states");
+                    currentState = State::WaitForCoarseEstimate;
+                }
+                else
+                {
+                    _logWithState("Move to bin execution failed");
+                    currentState = State::Error;
+                }
+                break;
+            }
+            case State::HomeCutter:
+            {
+                ros::Duration(10.0).sleep();
+                int NUM_EXEC_TRIES = 1;
+                bool success = false;
+                vader_msgs::GoHomeRequest request;
+                request.request.is_gripper = false;
+                for (int i = 0; i < NUM_EXEC_TRIES; i++)
+                {
+                    if (goHomeClient.call(request))
+                    {
+                        if (request.response.result == 1)
+                        {
+                            _logWithState("Execution successful");
+                            success = true;
+                            break;
+                        }
+                    }
+                }
+                if (success)
+                {
+                    _logWithState("Move to bin execution successful, switching states");
+                    currentState = State::WaitForCoarseEstimate;
+                }
+                else
+                {
+                    _logWithState("Move to bin execution failed");
+                    currentState = State::Error;
+                }
+                break;
+            }
             case State::WaitForCoarseEstimate:
             {
                 if (coarseEstimate != nullptr)
