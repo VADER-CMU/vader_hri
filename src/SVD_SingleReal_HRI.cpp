@@ -51,8 +51,6 @@ private:
     vader_msgs::Pepper *fineEstimate;
     geometry_msgs::Pose *storageBinLocation; // only the fruit pose is used to designate storage bin location.
 
-    // geometry_msgs::Pose* homeLocation;
-
     // Plan/Exec clients connecting to planner
     ros::ServiceClient planClient, execClient;
     ros::ServiceClient moveToStorageClient;
@@ -247,7 +245,7 @@ public:
                 int NUM_EXEC_TRIES = 1;
                 bool success = false;
                 vader_msgs::GoHomeRequest request;
-                request.request.exec = true;
+                request.request.is_gripper = true;
                 for (int i = 0; i < NUM_EXEC_TRIES; i++)
                 {
                     if (goHomeClient.call(request))
