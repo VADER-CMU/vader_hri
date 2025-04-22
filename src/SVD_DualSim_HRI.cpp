@@ -159,7 +159,7 @@ private:
     }
 
 public:
-    VADERStateMachine() : currentState(State::WaitForCoarseEstimate)
+    VADERStateMachine() : currentState(State::HomeGripper)
     {
         coarseEstimate = nullptr;
         coarseEstimateSub = n.subscribe("/fruit_coarse_pose", 10, coarseEstimateCallback);
@@ -236,19 +236,18 @@ public:
                 }
                 if (success)
                 {
-                    _logWithState("Move to bin execution successful, switching states");
-                    currentState = State::WaitForCoarseEstimate;
+                    _logWithState("HomeGripper execution successful, switching states");
+                    currentState = State::HomeCutter;
                 }
                 else
                 {
-                    _logWithState("Move to bin execution failed");
+                    _logWithState("HomeGripper execution failed");
                     currentState = State::Error;
                 }
                 break;
             }
             case State::HomeCutter:
             {
-                ros::Duration(10.0).sleep();
                 int NUM_EXEC_TRIES = 1;
                 bool success = false;
                 vader_msgs::GoHomeRequest request;
@@ -267,12 +266,12 @@ public:
                 }
                 if (success)
                 {
-                    _logWithState("Move to bin execution successful, switching states");
+                    _logWithState("HomeCutter execution successful, switching states");
                     currentState = State::WaitForCoarseEstimate;
                 }
                 else
                 {
-                    _logWithState("Move to bin execution failed");
+                    _logWithState("HomeCutter execution failed");
                     currentState = State::Error;
                 }
                 break;
@@ -549,7 +548,7 @@ public:
                 int NUM_EXEC_TRIES = 5;
                 bool success = false;
                 vader_msgs::MoveToStorageRequest request;
-                request.request.reserve_dist = 0.1;
+                request.request.reserve_dist = 0.3;
                 request.request.binLocation = *storageBinLocation;
                 for (int i = 0; i < NUM_EXEC_TRIES; i++)
                 {
@@ -579,7 +578,7 @@ public:
             {
                 _logWithState("Releasing gripper");
                 _sendGripperCommand(100);
-                currentState = State::Done;
+                currentState = State::HomeGripper;
                 break;
             }
             case State::Done:
