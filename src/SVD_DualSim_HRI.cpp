@@ -70,8 +70,10 @@ private:
         tf2_ros::Buffer tf_buffer;
         tf2_ros::TransformListener tf_listener(tf_buffer);
         geometry_msgs::PoseStamped fruit_pose;
-        fruit_pose.pose.position.x = cameraFrameMsg->fruit_data.pose.position.x;
-        fruit_pose.pose.position.y = cameraFrameMsg->fruit_data.pose.position.y;
+        //TODO The below x/y swap/weirdness is a weird artifact left from previous PR4 work. Should be removed, but also need ot change sim logic everywhere
+        //So that the coordinates are correct with x/y unswapped.
+        fruit_pose.pose.position.x = -cameraFrameMsg->fruit_data.pose.position.y;
+        fruit_pose.pose.position.y = cameraFrameMsg->fruit_data.pose.position.x;
         fruit_pose.pose.position.z = cameraFrameMsg->fruit_data.pose.position.z;
         fruit_pose.pose.orientation.x = cameraFrameMsg->fruit_data.pose.orientation.x;
         fruit_pose.pose.orientation.y = cameraFrameMsg->fruit_data.pose.orientation.y;
@@ -79,8 +81,8 @@ private:
         fruit_pose.pose.orientation.w = cameraFrameMsg->fruit_data.pose.orientation.w;
 
         geometry_msgs::PoseStamped peduncle_pose;
-        peduncle_pose.pose.position.x = cameraFrameMsg->peduncle_data.pose.position.x;
-        peduncle_pose.pose.position.y = cameraFrameMsg->peduncle_data.pose.position.y;
+        peduncle_pose.pose.position.x = -cameraFrameMsg->peduncle_data.pose.position.y;
+        peduncle_pose.pose.position.y = cameraFrameMsg->peduncle_data.pose.position.x;
         peduncle_pose.pose.position.z = cameraFrameMsg->peduncle_data.pose.position.z;
         peduncle_pose.pose.orientation.x = cameraFrameMsg->peduncle_data.pose.orientation.x;
         peduncle_pose.pose.orientation.y = cameraFrameMsg->peduncle_data.pose.orientation.y;
