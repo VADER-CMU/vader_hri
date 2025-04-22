@@ -1,0 +1,31 @@
+<launch>
+ <!-- rpy -> ? r y -->
+    <arg name="sim_pepper_pose"         default="0.25 -0.6 0.405 0.4 0.1 0.0"/>
+    <arg name="gazebo_sim_pepper_pose"  default="0.25 0.09 1.43 -0.1 0.4 0.0"/>
+
+    <!-- <arg name="gazebo_sim_pepper_pose" default="0.5 -0.504 1.021 0.0 0.0 0.0"/> -->
+    <arg name="bin_xyz" default="0.2 -0.3 -0.2"/>
+    <arg name="bin_center_xyz" value="0.3 -0.4 -0.2"/>
+    <param name="bin_xyz" value="$(arg bin_center_xyz)" />
+
+    <!-- TF -->
+    <node pkg="vader_planner" type="cam_transform_publisher.py" name="tform"/>
+    
+    <!-- HRI state machine node -->
+    <node pkg="vader_hri" type="SVD_DualSim_HRI" name="SVD_DualSim_HRI" output="screen">
+    </node>
+
+    <!-- Planner (context + VADER planner) + Gazebo launch -->
+    <include file="$(find vader_planner)/launch/vader_SVD_dual_sim.launch"> 
+        <arg name="sim_pepper_pose" value="$(arg gazebo_sim_pepper_pose)" />
+        <arg name="bin_xyz" value="$(arg bin_xyz)" />
+    </include>
+
+    <!-- fake pose estimation nodes -->
+    <include file="$(find sim_fake_perception)/launch/fake_coarse_and_fine.launch">
+        <arg name="sim_pepper_pose" value="$(arg sim_pepper_pose)" />
+    </include>
+
+    <!-- fake end effectors -->
+    <node pkg="vader_dynamixel" type="dynamixel_node.py" name="dynamixel" output="screen"/>
+</launch>

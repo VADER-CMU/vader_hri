@@ -1,0 +1,21 @@
+<launch>
+    <arg name="bin_center_xyz" value="0.35 0.35 0.2"/>
+    <param name="bin_xyz" value="$(arg bin_center_xyz)" />
+
+    <!-- TF -->
+    <node pkg="vader_planner" type="cam_transform_publisher.py" name="tform"/>
+    
+    <!-- HRI state machine node -->
+    <node pkg="vader_hri" type="SVD_SingleReal_HRI" name="SVD_SingleReal_HRI" output="screen">
+    </node>
+
+    <!-- Planner (context + VADER planner) + Gazebo launch -->
+    <include file="$(find vader_planner)/launch/vader_SVD_single_realHW.launch"> 
+        <arg name="robot_ip" value="192.168.1.195"/>
+    </include>
+
+    <!-- fake end effectors -->
+    <node pkg="vader_dynamixel" type="dynamixel_node.py" name="dynamixel" output="screen"/>
+
+    <include file="$(find pose_estimation)/launch/coarse_pose_estimation.launch"></include>
+</launch>
