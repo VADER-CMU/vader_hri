@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 import random
+import subprocess
+# import os
+import time
 
 PREFIX="clear; roslaunch vader_hri vader_svd_dualsim.launch "
 
-def generate_poses():
+PEPPER_SDF_FILE = "/home/docker_ws/src/vader_sim/src/xarm_gazebo/worlds/breakable_pepper.sdf"
+
+def generate_and_spawn():
     # Generate random pose
     pose = {
         "x": round(random.uniform(0.25, 0.45), 2),
@@ -30,7 +35,25 @@ def generate_poses():
     arg_sim_pepper_pose = f"sim_pepper_pose:=\"{pose['x']} {pose['y']} {pose['z']} {pose['roll']} {pose['pitch']} 0.0\""
     arg_gazebo_sim_pepper_pose = f"gazebo_sim_pepper_pose:=\"{pose_gazebo['x']} {pose_gazebo['y']} {pose_gazebo['z']} {pose_gazebo['roll']} {pose_gazebo['pitch']} 0.0\""
 
-    print(PREFIX + arg_sim_pepper_pose + " " + arg_gazebo_sim_pepper_pose)
+    hri_launch_command = PREFIX + arg_sim_pepper_pose + " " + arg_gazebo_sim_pepper_pose
+
+    gazebo_model_name = "pepper1"
+    gazebo_command = "rosrun gazebo_ros spawn_model -gazebo_namespace /gazebo -file "
+    gazebo_command += PEPPER_SDF_FILE
+    gazebo_command += f" -x {pose_gazebo['x']} -y {pose_gazebo['y']} -z {pose_gazebo['z']} -R {pose_gazebo['roll']} -P {pose_gazebo['pitch']} -sdf -model {gazebo_model_name}"
+
+    hri_proc = subprocess.Popen([hri_launch_command], shell=True)
+    gazebo_proc = subprocess.Popen([gazebo_command], shell=True)
+
+    try:
+        hri_proc.wait()
+        gazebo_proc.wait()
+    except KeyboardInterrupt:
+        hri_proc.terminate()
+        gazebo_proc.terminate()
+        hri_proc.wait()
+        gazebo_proc.wait()
+
 
 if __name__ == "__main__":
-    generate_poses()
+    generate_and_spawn()
