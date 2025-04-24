@@ -3,15 +3,19 @@ import random
 import subprocess
 # import os
 import time
+from vader_msgs.msg import SimulationPepperSequence, SimulationPopPepper
+from geometry_msgs.msg import Pose
+from tf.transformations import quaternion_from_euler
+import rospy
 
 PREFIX="clear; roslaunch vader_hri vader_svd_dualsim.launch "
 
 PEPPER_SDF_FILE = "/home/docker_ws/src/vader_sim/src/xarm_gazebo/worlds/breakable_pepper.sdf"
 
 pepper_base_poses = [
-    [0.25, -0.6, 0.5],
-    [0.35, -0.55, 0.6],
     [0.45, -0.5, 0.4],
+    # [0.35, -0.55, 0.6],
+    [0.25, -0.65, 0.5],
 ]
 
 def randomize_pepper(pepper_base_pose):
@@ -22,14 +26,26 @@ def randomize_pepper(pepper_base_pose):
     roll = round(random.uniform(-0.5, 0.5), 2)
     pitch = round(random.uniform(-0.5, 0.5), 2)
 
-    pose = {
+    pepper_pose_dict = {
         "x": x,
         "y": y,
         "z": z,
         "roll": roll,
         "pitch": pitch
     }
-    return pose
+
+    pose = Pose()
+    pose.position.x = x
+    pose.position.y = y
+    pose.position.z = z
+    quaternion = quaternion_from_euler(roll, pitch, 0)
+    pose.orientation.x = quaternion[0]
+    pose.orientation.y = quaternion[1]
+    pose.orientation.z = quaternion[2]
+    pose.orientation.w = quaternion[3]
+
+
+    return pepper_pose_dict, pose
 
 def get_gazebo_pose(pepper_pose):
     # Convert the pepper pose to gazebo pose
@@ -44,9 +60,11 @@ def get_gazebo_pose(pepper_pose):
 
 def generate_and_spawn():
     randomized_peppers = []
+    pepper_poses = []
     for pepper in pepper_base_poses:
-        pose = randomize_pepper(pepper)
-        randomized_peppers.append(pose)
+        pose_dict, pose_msg = randomize_pepper(pepper)
+        randomized_peppers.append(pose_dict)
+        pepper_poses.append(pose_msg)
 
     # pose = randomize_pepper(pepper_base_poses[0])
     pose_gazebo = get_gazebo_pose(randomized_peppers[0])
@@ -56,6 +74,7 @@ def generate_and_spawn():
 
     hri_launch_command = PREFIX + arg_sim_pepper_pose + " " + arg_gazebo_sim_pepper_pose
 
+    
     gazebo_spawn_procs = []
     for i in range(len(pepper_base_poses)):
         pose_gazebo = get_gazebo_pose(randomized_peppers[i])
@@ -70,6 +89,16 @@ def generate_and_spawn():
     # gazebo_command += f" -x {pose_gazebo['x']} -y {pose_gazebo['y']} -z {pose_gazebo['z']} -R {pose_gazebo['roll']} -P {pose_gazebo['pitch']} -sdf -model {gazebo_model_name}"
 
     hri_proc = subprocess.Popen([hri_launch_command], shell=True)
+
+    rospy.init_node("SVD_sim_randomized_launcher", anonymous=True)
+    time.sleep(1)
+    pepper_seq_pub = rospy.Publisher("/pepper_sequence", SimulationPepperSequence, queue_size=10)
+    for i in range(3):
+        time.sleep(.5)
+        pepper_seq_msg = SimulationPepperSequence()
+        pepper_seq_msg.pepper_poses = pepper_poses
+        pepper_seq_pub.publish(pepper_seq_msg)
+
     # gazebo_proc = subprocess.Popen([gazebo_command], shell=True)
 
     try:

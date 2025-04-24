@@ -9,6 +9,7 @@
 #include "vader_msgs/GoHomeRequest.h"
 #include "vader_msgs/GripperCommand.h"
 #include "vader_msgs/CutterCommand.h"
+#include "vader_msgs/SimulationPopPepper.h"
 
 #include <ros/ros.h>
 #include <tf2_ros/transform_listener.h>
@@ -64,6 +65,7 @@ private:
 
     // End effector talking to dynamixel node
     ros::Publisher gripperCommandPub, cutterCommandPub;
+    ros::Publisher simulationPopPepperPub;
 
     /*
     Input: cameraFrameMsg containing the pose of the fruit in the camera frame from the coarse/fine pepper estimate
@@ -190,6 +192,7 @@ public:
 
         gripperCommandPub = n.advertise<vader_msgs::GripperCommand>("/gripper_command", 10);
         cutterCommandPub = n.advertise<vader_msgs::CutterCommand>("/cutter_command", 10);
+        simulationPopPepperPub = n.advertise<vader_msgs::SimulationPopPepper>("/pepper_pop", 10);
     }
 
     void setCoarsePoseEstimate(const vader_msgs::Pepper::ConstPtr &msg)
@@ -545,6 +548,12 @@ public:
             }
             case State::PlanAndMoveToBin:
             {
+                // Publisher pop pepper message
+                vader_msgs::SimulationPopPepper popMsg;
+                geometry_msgs::Pose pose;
+                popMsg.pepper_pose = pose;
+                simulationPopPepperPub.publish(popMsg);
+                // Move to storage bin
                 int NUM_EXEC_TRIES = 5;
                 bool success = false;
                 vader_msgs::MoveToStorageRequest request;
