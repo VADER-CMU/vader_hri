@@ -17,6 +17,8 @@
 #include <tf2_ros/buffer.h>
 #include <geometry_msgs/PoseStamped.h>
 
+#include <chrono>
+
 static void coarseEstimateCallback(const vader_msgs::Pepper::ConstPtr& msg);
 static void fineEstimateCallback(const vader_msgs::Pepper::ConstPtr& msg);
 
@@ -37,6 +39,7 @@ class VADERStateMachine {
         GripperRelease,
         Done,
         Home,
+        Home_Intermediate,
         Error
     };
 
@@ -45,6 +48,8 @@ class VADERStateMachine {
 
     //Perception subscriptions and data
     ros::Subscriber coarseEstimateSub, fineEstimateSub;
+
+    std::chrono::time_point<std::chrono::steady_clock> lastFineEstimateReceived = std::chrono::steady_clock::now(), startedWaitingFineEstimate;
     vader_msgs::Pepper* coarseEstimate;
     vader_msgs::Pepper* fineEstimate;
     geometry_msgs::Pose* storageBinLocation; //only the fruit pose is used to designate storage bin location.
@@ -213,7 +218,7 @@ class VADERStateMachine {
         }
 
         void setCoarsePoseEstimate(const vader_msgs::Pepper::ConstPtr& msg) {
-            if(currentState == State::WaitForCoarseEstimate){
+            if(currentState == State::WaitForCoarseEstimate || currentState == State::WaitForFineEstimate){
                 coarseEstimate = new vader_msgs::Pepper();
                 coarseEstimate->header = msg->header;
                 _transformFromCameraFrameIntoRobotFrame(msg, coarseEstimate, true);
@@ -227,16 +232,18 @@ class VADERStateMachine {
                 fineEstimate->header = msg->header;
                 _transformFromCameraFrameIntoRobotFrame(msg, fineEstimate, false);
                 _logWithState("Fine estimate received");
+                lastFineEstimateReceived = std::chrono::steady_clock::now();
             }
         }
     
         void execute() {
             ros::Rate loop_rate(10);
+
+            ros::Duration(10.0).sleep(); //wait for planner init
             while (ros::ok()) {
                 switch (currentState) {
                     case State::Home:
                     {
-                        ros::Duration(10.0).sleep();
                         int NUM_EXEC_TRIES = 1;
                         bool success = false;
                         vader_msgs::GoHomeRequest request;
@@ -315,6 +322,7 @@ class VADERStateMachine {
                         if (success) {
                             _logWithState("Gripper pregrasp execution successful, switching states");
                             currentState = State::WaitForFineEstimate;
+                            startedWaitingFineEstimate = std::chrono::steady_clock::now();
                         } else {
                             _logWithState("Gripper pregrasp execution failed");
                             currentState = State::Error;
@@ -328,6 +336,14 @@ class VADERStateMachine {
                             currentState = State::PlanGripperToGrasp;
                         } else {
                             _logWithState("Waiting for fine estimate");
+                            if (std::chrono::duration_cast<std::chrono::milliseconds>(
+                                    std::chrono::steady_clock::now() - lastFineEstimateReceived).count() > 4000L && 
+                                std::chrono::duration_cast<std::chrono::milliseconds>(
+                                    std::chrono::steady_clock::now() - startedWaitingFineEstimate).count() > 4000L){
+                                _logWithState("No fine estimate received in 5s, using coarse estimate as fine estimate");
+                                fineEstimate = coarseEstimate;
+                                currentState = State::PlanGripperToGrasp;
+                            }
                         }
                         break;
                     }
@@ -384,6 +400,15 @@ class VADERStateMachine {
                         }
                         if (success) {
                             _logWithState("Gripper grasp execution successful, switching states");
+                            if (fineEstimate != nullptr) {
+                                ROS_INFO_STREAM("Fine estimate pose position: x=" << fineEstimate->fruit_data.pose.position.x
+                                               << ", y=" << fineEstimate->fruit_data.pose.position.y
+                                               << ", z=" << fineEstimate->fruit_data.pose.position.z);
+                                ROS_INFO_STREAM("Fine estimate pose orientation: x=" << fineEstimate->fruit_data.pose.orientation.x
+                                               << ", y=" << fineEstimate->fruit_data.pose.orientation.y
+                                               << ", z=" << fineEstimate->fruit_data.pose.orientation.z
+                                               << ", w=" << fineEstimate->fruit_data.pose.orientation.w);
+                            }
                             currentState = State::GripperGrasp;
                         } else {
                             _logWithState("Gripper grasp execution failed");
@@ -395,10 +420,37 @@ class VADERStateMachine {
                     {
                         _logWithState("Grasping fruit");
                         _sendGripperCommand(0);
-                        ros::Duration(5.0).sleep();
+                        ros::Duration(1.0).sleep();
                         // _sendGripperCommand(100);
                         // ros::Duration(1.0).sleep();
-                        currentState = State::PlanAndMoveToBin;
+                        currentState = State::Home_Intermediate;
+                        break;
+                    }
+
+
+                    case State::Home_Intermediate:
+                    {
+                        ros::Duration(2.0).sleep();
+                        int NUM_EXEC_TRIES = 1;
+                        bool success = false;
+                        vader_msgs::GoHomeRequest request;
+                        request.request.exec=true;
+                        for (int i = 0; i < NUM_EXEC_TRIES; i++) {
+                            if (goHomeClient.call(request)){
+                                if (request.response.result == 1) {
+                                    _logWithState("Execution successful");
+                                    success = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (success) {
+                            _logWithState("Move to bin execution successful, switching states");
+                            currentState = State::PlanAndMoveToBin;
+                        } else {
+                            _logWithState("Move to bin execution failed");
+                            currentState = State::Error;
+                        }
                         break;
                     }
                     case State::PlanAndMoveToBin:
@@ -422,7 +474,7 @@ class VADERStateMachine {
                             currentState = State::GripperRelease;
                         } else {
                             _logWithState("Move to bin execution failed");
-                            currentState = State::PlanAndMoveToBin;
+                            currentState = State::GripperRelease;
                         }
                         break;
                     }
@@ -430,7 +482,10 @@ class VADERStateMachine {
                     {
                         _logWithState("Releasing gripper");
                         _sendGripperCommand(100);
-                        currentState = State::Done;
+                        currentState = State::Home;
+                        //Reset estimates
+                        coarseEstimate = nullptr;
+                        fineEstimate = nullptr;
                         break;
                     }
                     case State::Done:
