@@ -504,7 +504,7 @@ public:
             }
             case State::CutterGrasp:
             {
-                int NUM_CUTS = 2;
+                int NUM_CUTS = 1;
                 _logWithState("Cutting peduncle");
                 for (int i = 0; i < NUM_CUTS; i++)
                 {

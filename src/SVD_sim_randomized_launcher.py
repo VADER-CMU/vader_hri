@@ -14,8 +14,8 @@ PEPPER_SDF_FILE = "/home/docker_ws/src/vader_sim/src/xarm_gazebo/worlds/breakabl
 
 pepper_base_poses = [
     [0.2, -0.5, 0.5],
-    [0.35, -0.65, 0.65],
     [0.5, -0.6, 0.4],
+    [0.35, -0.55, 0.65],
 ]
 
 def randomize_pepper(pepper_base_pose):
