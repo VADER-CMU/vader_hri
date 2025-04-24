@@ -214,13 +214,14 @@ public:
     void execute()
     {
         ros::Rate loop_rate(10);
+        ros::Duration(10.0).sleep();
+
         while (ros::ok())
         {
             switch (currentState)
             {
             case State::HomeGripper:
             {
-                ros::Duration(10.0).sleep();
                 int NUM_EXEC_TRIES = 1;
                 bool success = false;
                 vader_msgs::GoHomeRequest request;
@@ -548,11 +549,6 @@ public:
             }
             case State::PlanAndMoveToBin:
             {
-                // Publisher pop pepper message
-                vader_msgs::SimulationPopPepper popMsg;
-                geometry_msgs::Pose pose;
-                popMsg.pepper_pose = pose;
-                simulationPopPepperPub.publish(popMsg);
                 // Move to storage bin
                 int NUM_EXEC_TRIES = 5;
                 bool success = false;
@@ -588,6 +584,12 @@ public:
                 _logWithState("Releasing gripper");
                 _sendGripperCommand(100);
                 currentState = State::HomeGripper;
+
+                // Publisher pop pepper message
+                vader_msgs::SimulationPopPepper popMsg;
+                geometry_msgs::Pose pose;
+                popMsg.pepper_pose = pose;
+                simulationPopPepperPub.publish(popMsg);
                 break;
             }
             case State::Done:

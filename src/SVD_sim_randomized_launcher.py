@@ -13,9 +13,9 @@ PREFIX="clear; roslaunch vader_hri vader_svd_dualsim.launch "
 PEPPER_SDF_FILE = "/home/docker_ws/src/vader_sim/src/xarm_gazebo/worlds/breakable_pepper.sdf"
 
 pepper_base_poses = [
-    [0.45, -0.5, 0.4],
-    # [0.35, -0.55, 0.6],
-    [0.25, -0.65, 0.5],
+    [0.2, -0.5, 0.5],
+    [0.35, -0.65, 0.65],
+    [0.5, -0.6, 0.4],
 ]
 
 def randomize_pepper(pepper_base_pose):
