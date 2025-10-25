@@ -67,8 +67,8 @@ private:
         geometry_msgs::PoseStamped fruit_pose;
         //TODO The below x/y swap/weirdness is a weird artifact left from previous PR4 work. Should be removed, but also need ot change sim logic everywhere
         //So that the coordinates are correct with x/y unswapped.
-        fruit_pose.pose.position.x = -cameraFrameMsg->fruit_data.pose.position.y;
-        fruit_pose.pose.position.y = cameraFrameMsg->fruit_data.pose.position.x;
+        fruit_pose.pose.position.x = cameraFrameMsg->fruit_data.pose.position.x;
+        fruit_pose.pose.position.y = cameraFrameMsg->fruit_data.pose.position.y;
         fruit_pose.pose.position.z = cameraFrameMsg->fruit_data.pose.position.z;
         fruit_pose.pose.orientation.x = cameraFrameMsg->fruit_data.pose.orientation.x;
         fruit_pose.pose.orientation.y = cameraFrameMsg->fruit_data.pose.orientation.y;
@@ -76,8 +76,8 @@ private:
         fruit_pose.pose.orientation.w = cameraFrameMsg->fruit_data.pose.orientation.w;
 
         geometry_msgs::PoseStamped peduncle_pose;
-        peduncle_pose.pose.position.x = -cameraFrameMsg->peduncle_data.pose.position.y;
-        peduncle_pose.pose.position.y = cameraFrameMsg->peduncle_data.pose.position.x;
+        peduncle_pose.pose.position.x = cameraFrameMsg->peduncle_data.pose.position.x;
+        peduncle_pose.pose.position.y = cameraFrameMsg->peduncle_data.pose.position.y;
         peduncle_pose.pose.position.z = cameraFrameMsg->peduncle_data.pose.position.z;
         peduncle_pose.pose.orientation.x = cameraFrameMsg->peduncle_data.pose.orientation.x;
         peduncle_pose.pose.orientation.y = cameraFrameMsg->peduncle_data.pose.orientation.y;
@@ -90,11 +90,11 @@ private:
         {
             geometry_msgs::PoseStamped transformed_pose = tf_buffer.transform(
                 fruit_pose,
-                "link_base",
+                "world",
                 ros::Duration(3.0));
             geometry_msgs::PoseStamped transformed_peduncle_pose = tf_buffer.transform(
                 peduncle_pose,
-                "link_base",
+                "world",
                 ros::Duration(3.0));
             // ROS_INFO("Transformed pose: x=%f, y=%f, z=%f",
             //          transformed_pose.pose.position.x,
@@ -238,7 +238,7 @@ public:
                     if (coarseEstimate != nullptr)
                     {
                         _logWithState("Coarse estimate received, switching states");
-                        currentState = State::Done;
+                        currentState = State::ParallelMovePregrasp;
                     }
                     else
                     {
@@ -247,7 +247,30 @@ public:
                     break;
                 }
                 case State::ParallelMovePregrasp:{
+                    _logWithState("Planning parallel move to pregrasp...");
+                    vader_msgs::PlanningRequest srv;
+                    srv.request.mode = vader_msgs::PlanningRequest::Request::PARALLEL_MOVE_PREGRASP;
+                    srv.request.pepper = *coarseEstimate;
 
+                    if (planClient.call(srv))
+                    {
+                        if (srv.response.success)
+                        {
+                            _logWithState("Parallel move to pregrasp successful.");
+                            currentState = State::Done;
+                        }
+                        else
+                        {
+                            _logWithState("Parallel move to pregrasp failed.");
+                            currentState = State::Error;
+                        }
+                    }
+                    else
+                    {
+                        _logWithState("Failed to call planning service for parallel move to pregrasp.");
+                        currentState = State::Error;
+                    }
+                    break;
                 }
                 case State::WaitForFineEstimate:{
 
