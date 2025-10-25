@@ -13,9 +13,10 @@ PREFIX="clear; roslaunch vader_hri vader_fvd_dualsim.launch "
 PEPPER_SDF_FILE = "/home/docker_ws/src/vader_sim/src/xarm_gazebo/worlds/breakable_pepper.sdf"
 
 pepper_base_poses = [
-    [0.2, -0.5, 0.5],
-    [0.5, -0.6, 0.4],
-    [0.35, -0.55, 0.65],
+    # [0.2, -0.5, 0.5],
+    # [0.5, -0.6, 0.4],
+    # [0.35, -0.55, 0.65],
+    [0.9, 0.25, 0.4]
 ]
 
 def randomize_pepper(pepper_base_pose):
@@ -50,9 +51,9 @@ def randomize_pepper(pepper_base_pose):
 def get_gazebo_pose(pepper_pose):
     # Convert the pepper pose to gazebo pose
     gazebo_pose = {
-        "x": round(0.5 - pepper_pose["x"], 3),
-        "y": round(-0.51 - pepper_pose["y"], 3),
-        "z": round(pepper_pose["z"] + 1.025, 3),
+        "x": round(pepper_pose["x"], 3),
+        "y": round(pepper_pose["y"], 3),
+        "z": round(pepper_pose["z"], 3),
         "roll": -pepper_pose["pitch"],
         "pitch": pepper_pose["roll"]
     }

@@ -10,7 +10,7 @@
 
     <!-- Planner (context + VADER planner) + Gazebo launch -->
     <include file="$(find vader_planner)/launch/vader_parallel_dual_sim.launch"> 
-        <arg name="sim_pepper_pose" value="$(arg sim_pepper_pose)" />
+        <!-- <arg name="sim_pepper_pose" value="$(arg sim_pepper_pose)" /> -->
     </include>
 
     <!-- fake pose estimation nodes -->
