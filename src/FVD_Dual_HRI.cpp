@@ -150,7 +150,7 @@ private:
     }
 
 public:
-    VADERStateMachine() : currentState(State::HomeGripper)
+    VADERStateMachine() : currentState(State::WaitForCoarseEstimate)
     {
         coarseEstimate = nullptr;
         coarseEstimateSub = n.subscribe("/fruit_coarse_pose", 10, coarseEstimateCallback);
@@ -257,7 +257,7 @@ public:
                         if (srv.response.success)
                         {
                             _logWithState("Parallel move to pregrasp successful.");
-                            currentState = State::Done;
+                            currentState = State::WaitForFineEstimate;
                         }
                         else
                         {
@@ -273,16 +273,93 @@ public:
                     break;
                 }
                 case State::WaitForFineEstimate:{
-
+                    if (fineEstimate != nullptr)
+                    {
+                        _logWithState("Fine estimate received, switching states");
+                        currentState = State::GripperGrasp;
+                    }
+                    else
+                    {
+                        _logWithState("Waiting for fine estimate");
+                    }
+                    break;
                 }
                 case State::GripperGrasp:{
+                    _logWithState("Planning gripper grasp...");
+                    vader_msgs::PlanningRequest srv;
+                    srv.request.mode = vader_msgs::PlanningRequest::Request::GRIPPER_GRASP;
+                    srv.request.pepper = *fineEstimate;
 
+                    if (planClient.call(srv))
+                    {
+                        if (srv.response.success)
+                        {
+                            _logWithState("Gripper grasp successful.");
+                            currentState = State::CutterGrasp;
+                        }
+                        else
+                        {
+                            _logWithState("Gripper grasp failed.");
+                            currentState = State::Error;
+                        }
+                    }
+                    else
+                    {
+                        _logWithState("Failed to call planning service for gripper grasp.");
+                        currentState = State::Error;
+                    }
+                    break;
                 }
                 case State::CutterGrasp:{
+                    _logWithState("Planning cutter grasp...");
+                    vader_msgs::PlanningRequest srv;
+                    srv.request.mode = vader_msgs::PlanningRequest::Request::CUTTER_GRASP;
+                    srv.request.pepper = *fineEstimate;
 
+                    if (planClient.call(srv))
+                    {
+                        if (srv.response.success)
+                        {
+                            _logWithState("Cutter grasp successful.");
+                            currentState = State::ParallelMoveStorage;
+                        }
+                        else
+                        {
+                            _logWithState("Cutter grasp failed.");
+                            currentState = State::Error;
+                        }
+                    }
+                    else
+                    {
+                        _logWithState("Failed to call planning service for cutter grasp.");
+                        currentState = State::Error;
+                    }
+                    break;
                 }
                 case State::ParallelMoveStorage:{
+                    _logWithState("Planning parallel move to storage...");
+                    vader_msgs::PlanningRequest srv;
+                    srv.request.mode = vader_msgs::PlanningRequest::Request::PARALLEL_MOVE_STORAGE;
 
+                    if (planClient.call(srv))
+                    {
+                        if (srv.response.success)
+                        {
+                            _logWithState("Parallel move to storage successful.");
+                            currentState = State::Done;
+                        }
+                        else
+                        {
+                            _logWithState("Parallel move to storage failed.");
+                            currentState = State::Error;
+                        }
+                    }
+                    else
+                    {
+                        _logWithState("Failed to call planning service for parallel move to storage.");
+                        currentState = State::Error;
+                    }
+                    break;
                 }
                 case State::Done:
                 {

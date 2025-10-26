@@ -54,8 +54,8 @@ def get_gazebo_pose(pepper_pose):
         "x": round(pepper_pose["x"], 3),
         "y": round(pepper_pose["y"], 3),
         "z": round(pepper_pose["z"], 3),
-        "roll": -pepper_pose["pitch"],
-        "pitch": pepper_pose["roll"]
+        "roll": pepper_pose["roll"],
+        "pitch": pepper_pose["pitch"]
     }
     return gazebo_pose
 
