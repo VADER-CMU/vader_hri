@@ -34,8 +34,10 @@ private:
         // ----------Fine-Grasp stage-----------
         WaitForFineEstimate,
         GripperGrasp,
+        GripperEndEffector,
         // ------------Harvest stage-----------
         CutterGrasp,
+        CutterEndEffector,
         // -----------Finish and cleanup-----------
         ParallelMoveStorage,
         Done,
@@ -65,8 +67,6 @@ private:
         tf2_ros::Buffer tf_buffer;
         tf2_ros::TransformListener tf_listener(tf_buffer);
         geometry_msgs::PoseStamped fruit_pose;
-        //TODO The below x/y swap/weirdness is a weird artifact left from previous PR4 work. Should be removed, but also need ot change sim logic everywhere
-        //So that the coordinates are correct with x/y unswapped.
         fruit_pose.pose.position.x = cameraFrameMsg->fruit_data.pose.position.x;
         fruit_pose.pose.position.y = cameraFrameMsg->fruit_data.pose.position.y;
         fruit_pose.pose.position.z = cameraFrameMsg->fruit_data.pose.position.z;
@@ -96,10 +96,10 @@ private:
                 peduncle_pose,
                 "world",
                 ros::Duration(3.0));
-            // ROS_INFO("Transformed pose: x=%f, y=%f, z=%f",
-            //          transformed_pose.pose.position.x,
-            //          transformed_pose.pose.position.y,
-            //  transformed_pose.pose.position.z);
+            ROS_INFO("Transformed pose: x=%f, y=%f, z=%f",
+                     transformed_pose.pose.position.x,
+                     transformed_pose.pose.position.y,
+             transformed_pose.pose.position.z);
             result->fruit_data.pose.position.x = transformed_pose.pose.position.x;
             result->fruit_data.pose.position.y = transformed_pose.pose.position.y;
             result->fruit_data.pose.position.z = transformed_pose.pose.position.z;
@@ -150,7 +150,7 @@ private:
     }
 
 public:
-    VADERStateMachine() : currentState(State::WaitForCoarseEstimate)
+    VADERStateMachine() : currentState(State::HomeGripper)
     {
         coarseEstimate = nullptr;
         coarseEstimateSub = n.subscribe("/fruit_coarse_pose", 10, coarseEstimateCallback);
@@ -167,7 +167,10 @@ public:
     {
         coarseEstimate = new vader_msgs::Pepper();
         coarseEstimate->header = msg->header;
+        fineEstimate = new vader_msgs::Pepper();
+        fineEstimate->header = msg->header;
         _transformFromCameraFrameIntoRobotFrame(msg, coarseEstimate);
+        _transformFromCameraFrameIntoRobotFrame(msg, fineEstimate);
         // _logWithState("Coarse estimate received");
     }
 
@@ -188,6 +191,7 @@ public:
             {
                 case State::HomeGripper:{
                     _logWithState("Homing gripper...");
+                    _sendGripperCommand(100);
                     vader_msgs::PlanningRequest srv;
                     srv.request.mode = vader_msgs::PlanningRequest::Request::HOME_GRIPPER;
                     if (planClient.call(srv))
@@ -212,6 +216,7 @@ public:
                 }
                 case State::HomeCutter:{
                     _logWithState("Homing cutter...");
+                    _sendCutterCommand(100);
                     vader_msgs::PlanningRequest srv;
                     srv.request.mode = vader_msgs::PlanningRequest::Request::HOME_CUTTER;
                     if (planClient.call(srv))
@@ -295,7 +300,7 @@ public:
                         if (srv.response.success)
                         {
                             _logWithState("Gripper grasp successful.");
-                            currentState = State::CutterGrasp;
+                            currentState = State::GripperEndEffector;
                         }
                         else
                         {
@@ -310,6 +315,16 @@ public:
                     }
                     break;
                 }
+                case State::GripperEndEffector:
+                {
+                    _logWithState("Grasping fruit");
+                    _sendGripperCommand(0);
+                    ros::Duration(5.0).sleep();
+                    // _sendGripperCommand(100);
+                    // ros::Duration(1.0).sleep();
+                    currentState = State::CutterGrasp;
+                    break;
+                }
                 case State::CutterGrasp:{
                     _logWithState("Planning cutter grasp...");
                     vader_msgs::PlanningRequest srv;
@@ -321,7 +336,7 @@ public:
                         if (srv.response.success)
                         {
                             _logWithState("Cutter grasp successful.");
-                            currentState = State::ParallelMoveStorage;
+                            currentState = State::CutterEndEffector;
                         }
                         else
                         {
@@ -334,6 +349,22 @@ public:
                         _logWithState("Failed to call planning service for cutter grasp.");
                         currentState = State::Error;
                     }
+                    break;
+                }
+                case State::CutterEndEffector:
+                {
+                    _logWithState("Cutting peduncle");
+                    _sendCutterCommand(0);
+                    ros::Duration(2.0).sleep();
+                    _sendCutterCommand(100);
+                    ros::Duration(2.0).sleep();
+                    _sendCutterCommand(0);
+                    ros::Duration(2.0).sleep();
+                    _sendCutterCommand(100);
+                    ros::Duration(2.0).sleep();
+                    // _sendGripperCommand(100);
+                    // ros::Duration(1.0).sleep();
+                    currentState = State::ParallelMoveStorage;
                     break;
                 }
                 case State::ParallelMoveStorage:{
@@ -410,7 +441,7 @@ int main(int argc, char **argv)
     ros::init(argc, argv, "vader_hri");
     VADERStateMachine statemachine = VADERStateMachine();
     sm = &statemachine;
-    ros::Duration(10.0).sleep(); //wait for stuff
+    ros::Duration(20.0).sleep(); //wait for stuff
     statemachine.execute();
     return 0;
 }
