@@ -32,15 +32,20 @@ class SimulationDirector:
         pepper_y = 0.15 #m 
         pepper_z = 0.4 #m
 
+        env = os.environ.copy()
+        env['DISABLE_ROS1_EOL_WARNINGS'] = '1'
         while not rospy.is_shutdown() and self.run_count < self.max_runs:
             self.message_received.clear()
             rospy.loginfo("Starting run %i", self.run_count)
-            # self.process = subprocess.Popen(['rosrun', 'vader_hri', 'dummy_sim.py'])# 'SVD_sim_randomized_launcher.py'])
+
+            #Test the tests
+            # self.process = subprocess.Popen(['rosrun', 'vader_hri', 'dummy_sim.py'])
 
 
             self.process = subprocess.Popen(
                 ['rosrun', 'vader_hri', 'SVD_sim_randomized_launcher.py', '--x', str(pepper_x), '--y', str(pepper_y), '--z', str(pepper_z)],
-                preexec_fn=os.setsid
+                preexec_fn=os.setsid,
+                env=env,
             )
 
             # Wait until a message is received
@@ -60,21 +65,13 @@ class SimulationDirector:
         self.plot_results(pepper_x, pepper_y, pepper_z)
 
     def plot_results(self, x, y, z):
-        # Bin according to success (1) / failure (0)
-        success_count = self.results.count(1)
-        failure_count = self.run_count - success_count
-        # labels = ['Success', 'Failure']
-        # counts = [success_count, failure_count]
+        # Bin according to success (100) / failure (other values)
+        success_count = self.results.count(100)
 
         print("%i out of %i runs succeeded" % (success_count, self.run_count))
 
-        # plt.figure()
-        # plt.bar(labels, counts)
-        # plt.title('Success vs Failure Count')
-        # plt.show()
-
         # Plot reasons distribution if needed
-        title = 'Failure Reason Distribution for pepper (%.2f, %.2f, %.2f)' % (x, y, z)
+        title = 'Failure Reason Distribution for pepper (%.2f, %.2f, %.2f), Success Rate: %.2f%%' % (x, y, z, success_count / self.run_count * 100 if self.run_count > 0 else 0)
         reason_counter = Counter(self.reasons)
         plt.figure()
         plt.bar(reason_counter.keys(), reason_counter.values())
