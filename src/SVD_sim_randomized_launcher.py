@@ -7,6 +7,7 @@ from vader_msgs.msg import SimulationPepperSequence, SimulationPopPepper
 from geometry_msgs.msg import Pose
 from tf.transformations import quaternion_from_euler
 import rospy
+import argparse
 
 PREFIX="clear; roslaunch vader_hri vader_fvd_dualsim.launch "
 
@@ -16,7 +17,7 @@ pepper_base_poses = [
     # [0.2, -0.5, 0.5],
     # [0.5, -0.6, 0.4],
     # [0.35, -0.55, 0.65],
-    [0.9, 0.25, 0.4]
+    # [0.9, 0.25, 0.4]
 ]
 
 def randomize_pepper(pepper_base_pose):
@@ -119,26 +120,13 @@ def generate_and_spawn():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Launch simulation with pepper pose.')
+    parser.add_argument('--x', type=float, default=0.0, help='X coordinate of pose')
+    parser.add_argument('--y', type=float, default=0.0, help='Y coordinate of pose')
+    parser.add_argument('--z', type=float, default=0.0, help='Z coordinate of pose')
+
+    args = parser.parse_args()
+
+    pose = [args.x, args.y, args.z]
+    pepper_base_poses.append(pose)
     generate_and_spawn()
-
-# #!/usr/bin/env python3
-# import random
-
-# PREFIX="clear; roslaunch vader_hri vader_fvd_dualsim.launch "
-
-# def generate_poses():
-#     # Generate random pose
-#     pose = {
-#         "x": round(random.uniform(0.45, 0.55), 3), #depth from arm reach
-#         "y": round(random.uniform(0.35, 0.55), 3), #left from x-axis
-#         "z": round(random.uniform(0.4, 0.6), 3),
-#         "roll": round(random.uniform(-0.5, 0.5), 3),
-#         "pitch": round(random.uniform(-0.5, 0.5), 3)
-#     }
-
-#     arg_sim_pepper_pose = f"sim_pepper_pose:=\"{pose['x']} {pose['y']} {pose['z']} {pose['roll']} {pose['pitch']} 0.0\""
-
-#     print(PREFIX + arg_sim_pepper_pose)
-
-# if __name__ == "__main__":
-#     generate_poses()

@@ -9,6 +9,8 @@
 #include "vader_msgs/GripperCommand.h"
 #include "vader_msgs/CutterCommand.h"
 
+#include "vader_msgs/HarvestResult.h"
+
 #include "vader_msgs/PlanningRequest.h"
 
 #include <ros/ros.h>
@@ -58,6 +60,8 @@ private:
     // End effector talking to dynamixel node
     ros::Publisher gripperCommandPub, cutterCommandPub;
 
+    ros::Publisher resultStatusPub; //publishes to /harvest_result
+
     /*
     Input: cameraFrameMsg containing the pose of the fruit in the camera frame from the coarse/fine pepper estimate
     Output: result containing the pose of the fruit in the world frame using TF2.
@@ -96,10 +100,10 @@ private:
                 peduncle_pose,
                 "world",
                 ros::Duration(3.0));
-            ROS_INFO("Transformed pose: x=%f, y=%f, z=%f",
-                     transformed_pose.pose.position.x,
-                     transformed_pose.pose.position.y,
-             transformed_pose.pose.position.z);
+            // ROS_INFO("Transformed pose: x=%f, y=%f, z=%f",
+            //          transformed_pose.pose.position.x,
+            //          transformed_pose.pose.position.y,
+            //  transformed_pose.pose.position.z);
             result->fruit_data.pose.position.x = transformed_pose.pose.position.x;
             result->fruit_data.pose.position.y = transformed_pose.pose.position.y;
             result->fruit_data.pose.position.z = transformed_pose.pose.position.z;
@@ -149,6 +153,17 @@ private:
         ROS_INFO_STREAM("[" << currentState << "]: " << message);
     }
 
+    void _publishResultStatus(int result_code, const std::string &reason)
+    {
+        vader_msgs::HarvestResult resultMsg;
+        resultMsg.result = result_code;
+        resultMsg.reason = reason;
+        resultStatusPub.publish(resultMsg);
+        ros::Duration(1.0).sleep();
+        resultStatusPub.publish(resultMsg);
+        ROS_WARN_STREAM("Published harvest result: " << result_code << ", reason: " << reason);
+    }
+
 public:
     VADERStateMachine() : currentState(State::HomeGripper)
     {
@@ -161,6 +176,8 @@ public:
 
         gripperCommandPub = n.advertise<vader_msgs::GripperCommand>("/gripper_command", 10);
         cutterCommandPub = n.advertise<vader_msgs::CutterCommand>("/cutter_command", 10);
+
+        resultStatusPub = n.advertise<vader_msgs::HarvestResult>("/harvest_status", 10);
     }
 
     void setCoarsePoseEstimate(const vader_msgs::Pepper::ConstPtr &msg)
@@ -209,6 +226,7 @@ public:
                     }
                     else
                     {
+                        _publishResultStatus(srv.response.success, "Failed to home gripper.");
                         _logWithState("Failed to call planning service for gripper homing.");
                         currentState = State::Error;
                     }
@@ -234,6 +252,7 @@ public:
                     }
                     else
                     {
+                        _publishResultStatus(srv.response.success, "Failed to home cutter.");
                         _logWithState("Failed to call planning service for cutter homing.");
                         currentState = State::Error;
                     }
@@ -272,6 +291,7 @@ public:
                     }
                     else
                     {
+                        _publishResultStatus(srv.response.success, "Failed to move to pregrasp.");
                         _logWithState("Failed to call planning service for parallel move to pregrasp.");
                         currentState = State::Error;
                     }
@@ -310,6 +330,7 @@ public:
                     }
                     else
                     {
+                        _publishResultStatus(srv.response.success, "Failed to gripper grasp.");
                         _logWithState("Failed to call planning service for gripper grasp.");
                         currentState = State::Error;
                     }
@@ -346,6 +367,7 @@ public:
                     }
                     else
                     {
+                        _publishResultStatus(srv.response.success, "Failed to cutter grasp.");
                         _logWithState("Failed to call planning service for cutter grasp.");
                         currentState = State::Error;
                     }
@@ -387,6 +409,7 @@ public:
                     }
                     else
                     {
+                        _publishResultStatus(srv.response.success, "Failed to move to storage.");
                         _logWithState("Failed to call planning service for parallel move to storage.");
                         currentState = State::Error;
                     }
@@ -395,6 +418,7 @@ public:
                 case State::Done:
                 {
                     // ROS_INFO("Done");
+                    _publishResultStatus(vader_msgs::HarvestResult::RESULT_SUCCESS, "Success.");
                     _logWithState("Done");
                     break;
                 }
