@@ -42,8 +42,10 @@ private:
         CutterEndEffector,
         // -----------Finish and cleanup-----------
         ParallelMoveStorage,
+        HomeGripper2,
         Done,
-        Error
+        Error,
+        End
     };
 
     State currentState;
@@ -185,8 +187,8 @@ public:
         vader_msgs::Pepper::Ptr msg(new vader_msgs::Pepper());
         msg->fruit_data.pose = pose;
         msg->header.frame_id = "world";
-        msg->peduncle_data.pose = pose; //dummy
-        msg->peduncle_data.pose.position.z += 0.1; //dummy
+        msg->peduncle_data.pose = pose;
+        msg->peduncle_data.pose.position.z += 0.1;
         msg->fruit_data.shape.dimensions.resize(2);
         msg->fruit_data.shape.dimensions[0] = 0.08;
         msg->fruit_data.shape.dimensions[1] = 0.035;
@@ -232,12 +234,21 @@ public:
 
     void execute()
     {
+        int num_peppers_harvested = 0;
+        int max_peppers_to_harvest = 3;
+        std::vector<double> harvest_times_sec;
+
+        //Start time of each harvest
+        ros::Time harvest_start_time;
+
+
         ros::Rate loop_rate(10);
         while (ros::ok())
         {
             switch (currentState)
             {
                 case State::HomeGripper:{
+                    harvest_start_time = ros::Time::now();
                     _logWithState("Homing gripper...");
                     _sendGripperCommand(100);
                     vader_msgs::PlanningRequest srv;
@@ -440,7 +451,7 @@ public:
                         if (srv.response.success)
                         {
                             _logWithState("Parallel move to storage successful.");
-                            currentState = State::Done;
+                            currentState = State::HomeGripper2;
                         }
                         else
                         {
@@ -456,16 +467,66 @@ public:
                     }
                     break;
                 }
+                case State::HomeGripper2:{
+                    _logWithState("Homing gripper after storage...");
+                    _sendGripperCommand(100);
+                    vader_msgs::PlanningRequest srv;
+                    srv.request.mode = vader_msgs::PlanningRequest::Request::HOME_GRIPPER;
+                    if (planClient.call(srv))
+                    {
+                        if (srv.response.success)
+                        {
+                            _logWithState("Gripper homed successfully.");
+                            currentState = State::Done;
+                        }
+                        else
+                        {
+                            _logWithState("Gripper homing failed.");
+                            currentState = State::Error;
+                        }
+                    }
+                    else
+                    {
+                        _publishResultStatus(srv.response.success, "Failed to home gripper.");
+                        _logWithState("Failed to call planning service for gripper homing.");
+                        currentState = State::Error;
+                    }
+                    break;
+                }
                 case State::Done:
                 {
                     // ROS_INFO("Done");
-                    _publishResultStatus(vader_msgs::HarvestResult::RESULT_SUCCESS, "Success.");
+                    _publishResultStatus(vader_msgs::HarvestResult::RESULT_SUCCESS, "Success!");
+                    num_peppers_harvested += 1;
+                    coarseEstimate = nullptr;
+                    fineEstimate = nullptr;
+                    ros::Duration harvest_time = ros::Time::now() - harvest_start_time;
+                    harvest_times_sec.push_back(harvest_time.toSec());
+                    ROS_INFO_STREAM("Harvest time for pepper " << num_peppers_harvested << ": " << harvest_time.toSec() << " seconds");
+                    if (num_peppers_harvested >= max_peppers_to_harvest)
+                    {
+                        currentState = State::End;
+                        _logWithState("Harvested enough peppers. End of state machine execution.");
+                        double total_time = 0.0;
+                        for(int i = 0; i < harvest_times_sec.size(); i++) {
+                            ROS_INFO_STREAM("Harvest time for pepper " << (i+1) << ": " << harvest_times_sec[i] << " seconds");
+                            total_time += harvest_times_sec[i];
+                        }
+                        ROS_INFO_STREAM("Average harvest time: " << (total_time / harvest_times_sec.size()) << " seconds");
+                    }
+                    else
+                    {
+                        currentState = State::HomeGripper;
+                    }
                     _logWithState("Done");
                     break;
                 }
                 case State::Error:
                 {
-                    // ROS_INFO("Error");
+                    break;
+                }
+                case State::End:
+                {
                     break;
                 }
             }
