@@ -168,7 +168,7 @@ public:
     VADERStateMachine() : currentState(State::HomeGripper)
     {
         coarseEstimate = nullptr;
-        coarseEstimateSub = n.subscribe("/fruit_coarse_pose", 10, coarseEstimateCallback);
+        coarseEstimateSub = n.subscribe("/gripper_coarse_pose", 10, coarseEstimateCallback);
         fineEstimate = nullptr;
         fineEstimateSub = n.subscribe("/fruit_fine_pose", 10, fineEstimateCallback);
 
@@ -180,15 +180,46 @@ public:
         resultStatusPub = n.advertise<vader_msgs::HarvestResult>("/harvest_status", 10);
     }
 
+    void fakePepperPoseEstimate(const geometry_msgs::Pose &pose)
+    {
+        vader_msgs::Pepper::Ptr msg(new vader_msgs::Pepper());
+        msg->fruit_data.pose = pose;
+        msg->header.frame_id = "world";
+        msg->peduncle_data.pose = pose; //dummy
+        msg->peduncle_data.pose.position.z += 0.1; //dummy
+        msg->fruit_data.shape.dimensions.resize(2);
+        msg->fruit_data.shape.dimensions[0] = 0.08;
+        msg->fruit_data.shape.dimensions[1] = 0.035;
+        msg->peduncle_data.shape.dimensions.resize(2);
+        msg->peduncle_data.shape.dimensions[0] = 0.02;
+        msg->peduncle_data.shape.dimensions[1] = 0.002;
+        setCoarsePoseEstimate(msg);
+        setFinePoseEstimate(msg);
+    }
+
     void setCoarsePoseEstimate(const vader_msgs::Pepper::ConstPtr &msg)
     {
         coarseEstimate = new vader_msgs::Pepper();
         coarseEstimate->header = msg->header;
-        fineEstimate = new vader_msgs::Pepper();
-        fineEstimate->header = msg->header;
+        // fineEstimate = new vader_msgs::Pepper();
+        // fineEstimate->header = msg->header;
         _transformFromCameraFrameIntoRobotFrame(msg, coarseEstimate);
-        _transformFromCameraFrameIntoRobotFrame(msg, fineEstimate);
-        // _logWithState("Coarse estimate received");
+        // _transformFromCameraFrameIntoRobotFrame(msg, fineEstimate);
+        _logWithState("Coarse estimate received");
+        _logWithState("Raw message pose: x=" + std::to_string(msg->fruit_data.pose.position.x) +
+                      ", y=" + std::to_string(msg->fruit_data.pose.position.y) +
+                      ", z=" + std::to_string(msg->fruit_data.pose.position.z) + 
+                      ", quat=(" + std::to_string(msg->fruit_data.pose.orientation.x) + ", " +
+                      std::to_string(msg->fruit_data.pose.orientation.y) + ", " +
+                      std::to_string(msg->fruit_data.pose.orientation.z) + ", " +
+                      std::to_string(msg->fruit_data.pose.orientation.w) + ")");
+        _logWithState("Transformed pose: x=" + std::to_string(coarseEstimate->fruit_data.pose.position.x) +
+                      ", y=" + std::to_string(coarseEstimate->fruit_data.pose.position.y) +
+                      ", z=" + std::to_string(coarseEstimate->fruit_data.pose.position.z) + 
+                      ", quat=(" + std::to_string(coarseEstimate->fruit_data.pose.orientation.x) + ", " +
+                      std::to_string(coarseEstimate->fruit_data.pose.orientation.y) + ", " +
+                      std::to_string(coarseEstimate->fruit_data.pose.orientation.z) + ", " +
+                      std::to_string(coarseEstimate->fruit_data.pose.orientation.w) + ")");
     }
 
     void setFinePoseEstimate(const vader_msgs::Pepper::ConstPtr &msg)
@@ -196,7 +227,7 @@ public:
         fineEstimate = new vader_msgs::Pepper();
         fineEstimate->header = msg->header;
         _transformFromCameraFrameIntoRobotFrame(msg, fineEstimate);
-        // _logWithState("Fine estimate received");
+        _logWithState("Fine estimate received");
     }
 
     void execute()
@@ -267,6 +298,16 @@ public:
                     else
                     {
                         _logWithState("Waiting for coarse estimate");
+                        _logWithState("Using fake estimate");
+                        geometry_msgs::Pose fake_pose;
+                        fake_pose.position.x = 1.0;
+                        fake_pose.position.y = 0.2;
+                        fake_pose.position.z = 0.3;
+                        fake_pose.orientation.x = 0.0;
+                        fake_pose.orientation.y = 0.0;
+                        fake_pose.orientation.z = 0.0;
+                        fake_pose.orientation.w = 1.0;
+                        fakePepperPoseEstimate(fake_pose);
                     }
                     break;
                 }
@@ -320,7 +361,7 @@ public:
                         if (srv.response.success)
                         {
                             _logWithState("Gripper grasp successful.");
-                            currentState = State::GripperEndEffector;
+                            currentState = State::CutterGrasp;
                         }
                         else
                         {
@@ -357,7 +398,7 @@ public:
                         if (srv.response.success)
                         {
                             _logWithState("Cutter grasp successful.");
-                            currentState = State::CutterEndEffector;
+                            currentState = State::ParallelMoveStorage;
                         }
                         else
                         {
