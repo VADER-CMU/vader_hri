@@ -207,21 +207,21 @@ public:
         // fineEstimate->header = msg->header;
         _transformFromCameraFrameIntoRobotFrame(msg, coarseEstimate);
         // _transformFromCameraFrameIntoRobotFrame(msg, fineEstimate);
-        _logWithState("Coarse estimate received");
-        _logWithState("Raw message pose: x=" + std::to_string(msg->fruit_data.pose.position.x) +
-                      ", y=" + std::to_string(msg->fruit_data.pose.position.y) +
-                      ", z=" + std::to_string(msg->fruit_data.pose.position.z) + 
-                      ", quat=(" + std::to_string(msg->fruit_data.pose.orientation.x) + ", " +
-                      std::to_string(msg->fruit_data.pose.orientation.y) + ", " +
-                      std::to_string(msg->fruit_data.pose.orientation.z) + ", " +
-                      std::to_string(msg->fruit_data.pose.orientation.w) + ")");
-        _logWithState("Transformed pose: x=" + std::to_string(coarseEstimate->fruit_data.pose.position.x) +
-                      ", y=" + std::to_string(coarseEstimate->fruit_data.pose.position.y) +
-                      ", z=" + std::to_string(coarseEstimate->fruit_data.pose.position.z) + 
-                      ", quat=(" + std::to_string(coarseEstimate->fruit_data.pose.orientation.x) + ", " +
-                      std::to_string(coarseEstimate->fruit_data.pose.orientation.y) + ", " +
-                      std::to_string(coarseEstimate->fruit_data.pose.orientation.z) + ", " +
-                      std::to_string(coarseEstimate->fruit_data.pose.orientation.w) + ")");
+        // _logWithState("Coarse estimate received");
+        // _logWithState("Raw message pose: x=" + std::to_string(msg->fruit_data.pose.position.x) +
+        //               ", y=" + std::to_string(msg->fruit_data.pose.position.y) +
+        //               ", z=" + std::to_string(msg->fruit_data.pose.position.z) + 
+        //               ", quat=(" + std::to_string(msg->fruit_data.pose.orientation.x) + ", " +
+        //               std::to_string(msg->fruit_data.pose.orientation.y) + ", " +
+        //               std::to_string(msg->fruit_data.pose.orientation.z) + ", " +
+        //               std::to_string(msg->fruit_data.pose.orientation.w) + ")");
+        // _logWithState("Transformed pose: x=" + std::to_string(coarseEstimate->fruit_data.pose.position.x) +
+        //               ", y=" + std::to_string(coarseEstimate->fruit_data.pose.position.y) +
+        //               ", z=" + std::to_string(coarseEstimate->fruit_data.pose.position.z) + 
+        //               ", quat=(" + std::to_string(coarseEstimate->fruit_data.pose.orientation.x) + ", " +
+        //               std::to_string(coarseEstimate->fruit_data.pose.orientation.y) + ", " +
+        //               std::to_string(coarseEstimate->fruit_data.pose.orientation.z) + ", " +
+        //               std::to_string(coarseEstimate->fruit_data.pose.orientation.w) + ")");
     }
 
     void setFinePoseEstimate(const vader_msgs::Pepper::ConstPtr &msg)
@@ -229,7 +229,7 @@ public:
         fineEstimate = new vader_msgs::Pepper();
         fineEstimate->header = msg->header;
         _transformFromCameraFrameIntoRobotFrame(msg, fineEstimate);
-        _logWithState("Fine estimate received");
+        // _logWithState("Fine estimate received");
     }
 
     void execute()
@@ -309,16 +309,16 @@ public:
                     else
                     {
                         _logWithState("Waiting for coarse estimate");
-                        _logWithState("Using fake estimate");
-                        geometry_msgs::Pose fake_pose;
-                        fake_pose.position.x = 1.0;
-                        fake_pose.position.y = 0.2;
-                        fake_pose.position.z = 0.3;
-                        fake_pose.orientation.x = 0.0;
-                        fake_pose.orientation.y = 0.0;
-                        fake_pose.orientation.z = 0.0;
-                        fake_pose.orientation.w = 1.0;
-                        fakePepperPoseEstimate(fake_pose);
+                        // _logWithState("Using fake estimate");
+                        // geometry_msgs::Pose fake_pose;
+                        // fake_pose.position.x = 1.0;
+                        // fake_pose.position.y = 0.2;
+                        // fake_pose.position.z = 0.3;
+                        // fake_pose.orientation.x = 0.0;
+                        // fake_pose.orientation.y = 0.0;
+                        // fake_pose.orientation.z = 0.0;
+                        // fake_pose.orientation.w = 1.0;
+                        // fakePepperPoseEstimate(fake_pose);
                     }
                     break;
                 }

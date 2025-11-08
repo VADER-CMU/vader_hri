@@ -170,13 +170,13 @@ add_executable(FVD_Dual_HRI src/FVD_Dual_HRI.cpp)
 target_link_libraries(FVD_Dual_HRI ${catkin_LIBRARIES})
 add_dependencies(FVD_Dual_HRI vader_msgs_generate_messages_cpp)
 
-add_executable(SVD_DualSim_HRI src/SVD_DualSim_HRI.cpp)
-target_link_libraries(SVD_DualSim_HRI ${catkin_LIBRARIES})
-add_dependencies(SVD_DualSim_HRI vader_msgs_generate_messages_cpp)
+# add_executable(SVD_DualSim_HRI src/SVD_DualSim_HRI.cpp)
+# target_link_libraries(SVD_DualSim_HRI ${catkin_LIBRARIES})
+# add_dependencies(SVD_DualSim_HRI vader_msgs_generate_messages_cpp)
 
-add_executable(SVD_SingleReal_HRI src/SVD_SingleReal_HRI.cpp)
-target_link_libraries(SVD_SingleReal_HRI ${catkin_LIBRARIES})
-add_dependencies(SVD_SingleReal_HRI vader_msgs_generate_messages_cpp)
+# add_executable(SVD_SingleReal_HRI src/SVD_SingleReal_HRI.cpp)
+# target_link_libraries(SVD_SingleReal_HRI ${catkin_LIBRARIES})
+# add_dependencies(SVD_SingleReal_HRI vader_msgs_generate_messages_cpp)
 
 #############
 ## Install ##
@@ -199,7 +199,7 @@ add_dependencies(SVD_SingleReal_HRI vader_msgs_generate_messages_cpp)
 # )
 
 install(
-  TARGETS SVD_SingleReal_HRI SVD_DualSim_HRI FVD_Dual_HRI
+  TARGETS FVD_Dual_HRI
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
