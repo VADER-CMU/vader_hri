@@ -352,6 +352,7 @@ public:
             _transformFromCameraFrameIntoRobotFrame(pepper_msg, &transformed_pepper);
             fineEstimates.push_back(transformed_pepper);
         }
+        ROS_INFO_STREAM("Transformed fine estimates count: " << fineEstimates.size());
 
         if (!fineEstimates.empty())
         {
@@ -377,7 +378,7 @@ public:
     void execute()
     {
         int num_peppers_harvested = 0;
-        int max_peppers_to_harvest = 1;
+        int max_peppers_to_harvest = 2;
         std::vector<double> harvest_times_sec;
 
         //Start time of each harvest
