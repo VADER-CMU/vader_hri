@@ -3,6 +3,8 @@
 #include "ros/ros.h"
 #include "std_msgs/String.h"
 #include "vader_msgs/Pepper.h"
+
+#include "vader_msgs/PepperArray.h"
 // #include "vader_msgs/BimanualPlanRequest.h"
 // #include "vader_msgs/BimanualExecRequest.h"
 // #include "vader_msgs/MoveToStorageRequest.h"
@@ -20,8 +22,8 @@
 #include <tf2_ros/buffer.h>
 #include <geometry_msgs/PoseStamped.h>
 
-static void coarseEstimateCallback(const vader_msgs::Pepper::ConstPtr &msg);
-static void fineEstimateCallback(const vader_msgs::Pepper::ConstPtr &msg);
+static void coarseEstimateCallback(const vader_msgs::PepperArray::ConstPtr &msg);
+static void fineEstimateCallback(const vader_msgs::PepperArray::ConstPtr &msg);
 
 class VADERStateMachine
 {
@@ -40,12 +42,12 @@ private:
         // ------------Harvest stage-----------
         CutterGrasp,
         CutterEndEffector,
-        // -----------Finish and cleanup-----------
-        ParallelMoveStorage,
-        HomeGripper2,
-        Done,
-        Error,
-        End
+    // -----------Finish and cleanup-----------
+    ParallelMoveStorage,
+    HomeGripper2,
+    Done,
+    Error,
+    End
     };
 
     State currentState;
@@ -53,6 +55,8 @@ private:
 
     // Perception subscriptions and data
     ros::Subscriber coarseEstimateSub, fineEstimateSub;
+    std::vector<vader_msgs::Pepper> coarseEstimates;
+    std::vector<vader_msgs::Pepper> fineEstimates;
     vader_msgs::Pepper *coarseEstimate;
     vader_msgs::Pepper *fineEstimate;
 
@@ -68,29 +72,43 @@ private:
     Input: cameraFrameMsg containing the pose of the fruit in the camera frame from the coarse/fine pepper estimate
     Output: result containing the pose of the fruit in the world frame using TF2.
     */
-    void _transformFromCameraFrameIntoRobotFrame(const vader_msgs::Pepper::ConstPtr &cameraFrameMsg, vader_msgs::Pepper *result)
+    void _transformFromCameraFrameIntoRobotFrame(const vader_msgs::Pepper cameraFrameMsg, vader_msgs::Pepper *result)
     {
         tf2_ros::Buffer tf_buffer;
         tf2_ros::TransformListener tf_listener(tf_buffer);
         geometry_msgs::PoseStamped fruit_pose;
-        fruit_pose.pose.position.x = cameraFrameMsg->fruit_data.pose.position.x;
-        fruit_pose.pose.position.y = cameraFrameMsg->fruit_data.pose.position.y;
-        fruit_pose.pose.position.z = cameraFrameMsg->fruit_data.pose.position.z;
-        fruit_pose.pose.orientation.x = cameraFrameMsg->fruit_data.pose.orientation.x;
-        fruit_pose.pose.orientation.y = cameraFrameMsg->fruit_data.pose.orientation.y;
-        fruit_pose.pose.orientation.z = cameraFrameMsg->fruit_data.pose.orientation.z;
-        fruit_pose.pose.orientation.w = cameraFrameMsg->fruit_data.pose.orientation.w;
-
+        fruit_pose.pose.position.x = cameraFrameMsg.fruit_data.pose.position.x;
+        fruit_pose.pose.position.y = cameraFrameMsg.fruit_data.pose.position.y;
+        fruit_pose.pose.position.z = cameraFrameMsg.fruit_data.pose.position.z;
+        fruit_pose.pose.orientation.x = cameraFrameMsg.fruit_data.pose.orientation.x;
+        fruit_pose.pose.orientation.y = cameraFrameMsg.fruit_data.pose.orientation.y;
+        fruit_pose.pose.orientation.z = cameraFrameMsg.fruit_data.pose.orientation.z;
+        fruit_pose.pose.orientation.w = cameraFrameMsg.fruit_data.pose.orientation.w;
+        fruit_pose.header.frame_id = cameraFrameMsg.header.frame_id;
+        // ROS_INFO("Original pose: x=%f, y=%f, z=%f, frame_id=%s",
+        //           fruit_pose.pose.position.x,
+        //           fruit_pose.pose.position.y,
+        //           fruit_pose.pose.position.z,
+        //           fruit_pose.header.frame_id.c_str());
+        bool hasPeduncleData = !(cameraFrameMsg.header.frame_id.empty());
+        
         geometry_msgs::PoseStamped peduncle_pose;
-        peduncle_pose.pose.position.x = cameraFrameMsg->peduncle_data.pose.position.x;
-        peduncle_pose.pose.position.y = cameraFrameMsg->peduncle_data.pose.position.y;
-        peduncle_pose.pose.position.z = cameraFrameMsg->peduncle_data.pose.position.z;
-        peduncle_pose.pose.orientation.x = cameraFrameMsg->peduncle_data.pose.orientation.x;
-        peduncle_pose.pose.orientation.y = cameraFrameMsg->peduncle_data.pose.orientation.y;
-        peduncle_pose.pose.orientation.z = cameraFrameMsg->peduncle_data.pose.orientation.z;
-        peduncle_pose.pose.orientation.w = cameraFrameMsg->peduncle_data.pose.orientation.w;
-        fruit_pose.header.frame_id = cameraFrameMsg->header.frame_id;
-        peduncle_pose.header.frame_id = cameraFrameMsg->header.frame_id;
+        if(hasPeduncleData){
+            peduncle_pose.pose.position.x = cameraFrameMsg.peduncle_data.pose.position.x;
+            peduncle_pose.pose.position.y = cameraFrameMsg.peduncle_data.pose.position.y;
+            peduncle_pose.pose.position.z = cameraFrameMsg.peduncle_data.pose.position.z;
+            peduncle_pose.pose.orientation.x = cameraFrameMsg.peduncle_data.pose.orientation.x;
+            peduncle_pose.pose.orientation.y = cameraFrameMsg.peduncle_data.pose.orientation.y;
+            peduncle_pose.pose.orientation.z = cameraFrameMsg.peduncle_data.pose.orientation.z;
+            peduncle_pose.pose.orientation.w = cameraFrameMsg.peduncle_data.pose.orientation.w;
+            peduncle_pose.header.frame_id = cameraFrameMsg.header.frame_id;
+            // ROS_INFO("Original peduncle pose: x=%f, y=%f, z=%f, frame_id=%s",
+            //           peduncle_pose.pose.position.x,
+            //           peduncle_pose.pose.position.y,
+            //           peduncle_pose.pose.position.z,
+            //           peduncle_pose.header.frame_id.c_str());
+        }
+        
 
         try
         {
@@ -98,14 +116,7 @@ private:
                 fruit_pose,
                 "world",
                 ros::Duration(3.0));
-            geometry_msgs::PoseStamped transformed_peduncle_pose = tf_buffer.transform(
-                peduncle_pose,
-                "world",
-                ros::Duration(3.0));
-            // ROS_INFO("Transformed pose: x=%f, y=%f, z=%f",
-            //          transformed_pose.pose.position.x,
-            //          transformed_pose.pose.position.y,
-            //  transformed_pose.pose.position.z);
+            // ROS_INFO("After transform");
             result->fruit_data.pose.position.x = transformed_pose.pose.position.x;
             result->fruit_data.pose.position.y = transformed_pose.pose.position.y;
             result->fruit_data.pose.position.z = transformed_pose.pose.position.z;
@@ -114,19 +125,30 @@ private:
             result->fruit_data.pose.orientation.z = transformed_pose.pose.orientation.z;
             result->fruit_data.pose.orientation.w = transformed_pose.pose.orientation.w;
             result->fruit_data.shape.dimensions.resize(2);
-            result->fruit_data.shape.dimensions[0] = cameraFrameMsg->fruit_data.shape.dimensions[0];
-            result->fruit_data.shape.dimensions[1] = cameraFrameMsg->fruit_data.shape.dimensions[1];
+            result->fruit_data.shape.dimensions[0] = cameraFrameMsg.fruit_data.shape.dimensions[0];
+            result->fruit_data.shape.dimensions[1] = cameraFrameMsg.fruit_data.shape.dimensions[1];
 
-            result->peduncle_data.pose.position.x = transformed_peduncle_pose.pose.position.x;
-            result->peduncle_data.pose.position.y = transformed_peduncle_pose.pose.position.y;
-            result->peduncle_data.pose.position.z = transformed_peduncle_pose.pose.position.z;
-            result->peduncle_data.pose.orientation.x = transformed_peduncle_pose.pose.orientation.x;
-            result->peduncle_data.pose.orientation.y = transformed_peduncle_pose.pose.orientation.y;
-            result->peduncle_data.pose.orientation.z = transformed_peduncle_pose.pose.orientation.z;
-            result->peduncle_data.pose.orientation.w = transformed_peduncle_pose.pose.orientation.w;
-            result->peduncle_data.shape.dimensions.resize(2);
-            result->peduncle_data.shape.dimensions[0] = cameraFrameMsg->peduncle_data.shape.dimensions[0];
-            result->peduncle_data.shape.dimensions[1] = cameraFrameMsg->peduncle_data.shape.dimensions[1];
+            if(hasPeduncleData){
+                geometry_msgs::PoseStamped transformed_peduncle_pose = tf_buffer.transform(
+                    peduncle_pose,
+                    "world",
+                    ros::Duration(3.0));
+    
+                result->peduncle_data.pose.position.x = transformed_peduncle_pose.pose.position.x;
+                result->peduncle_data.pose.position.y = transformed_peduncle_pose.pose.position.y;
+                result->peduncle_data.pose.position.z = transformed_peduncle_pose.pose.position.z;
+                result->peduncle_data.pose.orientation.x = transformed_peduncle_pose.pose.orientation.x;
+                result->peduncle_data.pose.orientation.y = transformed_peduncle_pose.pose.orientation.y;
+                result->peduncle_data.pose.orientation.z = transformed_peduncle_pose.pose.orientation.z;
+                result->peduncle_data.pose.orientation.w = transformed_peduncle_pose.pose.orientation.w;
+                result->peduncle_data.shape.dimensions.resize(2);
+                result->peduncle_data.shape.dimensions[0] = cameraFrameMsg.peduncle_data.shape.dimensions[0];
+                result->peduncle_data.shape.dimensions[1] = cameraFrameMsg.peduncle_data.shape.dimensions[1];
+            }
+            // ROS_INFO("Transformed pose: x=%f, y=%f, z=%f",
+            //          transformed_pose.pose.position.x,
+            //          transformed_pose.pose.position.y,
+            //  transformed_pose.pose.position.z);
         }
         catch (tf2::TransformException &ex)
         {
@@ -166,13 +188,97 @@ private:
         ROS_WARN_STREAM("Published harvest result: " << result_code << ", reason: " << reason);
     }
 
+    bool _pepperReachable(const vader_msgs::Pepper &pepper)
+    {
+        double x_min = 0.7;
+        double x_max = 1.05;
+        double y_min = 0;
+        double y_max = 0.5;
+        double z_min = 0.3;
+        double z_max = 0.6;
+
+        bool result = true;
+
+        if (pepper.fruit_data.pose.position.x < x_min || pepper.fruit_data.pose.position.x > x_max)
+        {
+            // ROS_WARN_STREAM("Pepper x position out of reach: " << pepper.fruit_data.pose.position.x);
+            result = false;
+        }
+        if (pepper.fruit_data.pose.position.y < y_min || pepper.fruit_data.pose.position.y > y_max)
+        {
+            // ROS_WARN_STREAM("Pepper y position out of reach: " << pepper.fruit_data.pose.position.y);
+            result = false;
+        }
+        if (pepper.fruit_data.pose.position.z < z_min || pepper.fruit_data.pose.position.z > z_max)
+        {
+            // ROS_WARN_STREAM("Pepper z position out of reach: " << pepper.fruit_data.pose.position.z);
+            result = false;
+        }
+        return result;
+    }
+
+    void _prioritizeCoarseEstimatePepper(std::vector<vader_msgs::Pepper> &peppers)
+    {
+        if (peppers.size() == 0)
+        {
+            return;
+        }
+
+        // Simple prioritization: choose the pepper closest to the center of the reachable workspace
+        double x_center = 0.875; // (0.7 + 1.05) / 2
+        double y_center = 0.25;  // (0 + 0.5) / 2
+        double z_center = 0.45;  // (0.3 + 0.6) / 2
+
+        double min_distance = std::numeric_limits<double>::max();
+        int best_index = -1;
+
+        for (size_t i = 0; i < peppers.size(); i++)
+        {
+            if(!_pepperReachable(peppers[i]))
+            {
+                continue;
+            }
+            double dx = peppers[i].fruit_data.pose.position.x - x_center;
+            double dy = peppers[i].fruit_data.pose.position.y - y_center;
+            double dz = peppers[i].fruit_data.pose.position.z - z_center;
+            double distance = sqrt(dx * dx + dy * dy + dz * dz);
+
+            if (distance < min_distance)
+            {
+                min_distance = distance;
+                best_index = i;
+            }
+        }
+
+        if (best_index != -1)
+        {
+            coarseEstimate = new vader_msgs::Pepper(peppers[best_index]);
+            coarseEstimate->fruit_data.pose.orientation.x = 0;
+            coarseEstimate->fruit_data.pose.orientation.y = 0;
+            coarseEstimate->fruit_data.pose.orientation.z = 0;
+            coarseEstimate->fruit_data.pose.orientation.w = 1;
+            coarseEstimate->peduncle_data.pose.orientation.x = 0;
+            coarseEstimate->peduncle_data.pose.orientation.y = 0;
+            coarseEstimate->peduncle_data.pose.orientation.z = 0;
+            coarseEstimate->peduncle_data.pose.orientation.w = 1;
+            coarseEstimate->peduncle_data.pose.position.x = coarseEstimate->fruit_data.pose.position.x;
+            coarseEstimate->peduncle_data.pose.position.y = coarseEstimate->fruit_data.pose.position.y;
+            coarseEstimate->peduncle_data.pose.position.z = coarseEstimate->fruit_data.pose.position.z + 0.05; // approximate peduncle position
+            // ROS_WARN_STREAM("Selected pepper ("
+            //     << coarseEstimate->fruit_data.pose.position.x << ","
+            //     << coarseEstimate->fruit_data.pose.position.y << "," 
+            //     << coarseEstimate->fruit_data.pose.position.z << "," 
+            //     << ") as the best coarse estimate.");
+        }
+    }
+
 public:
     VADERStateMachine() : currentState(State::HomeGripper)
     {
         coarseEstimate = nullptr;
-        coarseEstimateSub = n.subscribe("/gripper_coarse_pose", 10, coarseEstimateCallback);
+        coarseEstimateSub = n.subscribe("/coarse_pepper_array", 10, coarseEstimateCallback);
         fineEstimate = nullptr;
-        fineEstimateSub = n.subscribe("/fruit_fine_pose", 10, fineEstimateCallback);
+        fineEstimateSub = n.subscribe("/fine_pepper_array", 10, fineEstimateCallback);
 
         planClient = n.serviceClient<vader_msgs::PlanningRequest>("vader_planning_service");
 
@@ -182,30 +288,36 @@ public:
         resultStatusPub = n.advertise<vader_msgs::HarvestResult>("/harvest_status", 10);
     }
 
-    void fakePepperPoseEstimate(const geometry_msgs::Pose &pose)
-    {
-        vader_msgs::Pepper::Ptr msg(new vader_msgs::Pepper());
-        msg->fruit_data.pose = pose;
-        msg->header.frame_id = "world";
-        msg->peduncle_data.pose = pose;
-        msg->peduncle_data.pose.position.z += 0.1;
-        msg->fruit_data.shape.dimensions.resize(2);
-        msg->fruit_data.shape.dimensions[0] = 0.08;
-        msg->fruit_data.shape.dimensions[1] = 0.035;
-        msg->peduncle_data.shape.dimensions.resize(2);
-        msg->peduncle_data.shape.dimensions[0] = 0.02;
-        msg->peduncle_data.shape.dimensions[1] = 0.002;
-        setCoarsePoseEstimate(msg);
-        setFinePoseEstimate(msg);
-    }
+    // void fakePepperPoseEstimate(const geometry_msgs::Pose &pose)
+    // {
+    //     vader_msgs::Pepper::Ptr msg(new vader_msgs::Pepper());
+    //     msg->fruit_data.pose = pose;
+    //     msg->header.frame_id = "world";
+    //     msg->peduncle_data.pose = pose;
+    //     msg->peduncle_data.pose.position.z += 0.1;
+    //     msg->fruit_data.shape.dimensions.resize(2);
+    //     msg->fruit_data.shape.dimensions[0] = 0.08;
+    //     msg->fruit_data.shape.dimensions[1] = 0.035;
+    //     msg->peduncle_data.shape.dimensions.resize(2);
+    //     msg->peduncle_data.shape.dimensions[0] = 0.02;
+    //     msg->peduncle_data.shape.dimensions[1] = 0.002;
+    //     setCoarsePoseEstimate(msg);
+    //     setFinePoseEstimate(msg);
+    // }
 
-    void setCoarsePoseEstimate(const vader_msgs::Pepper::ConstPtr &msg)
+    void setCoarsePoseEstimate(const vader_msgs::PepperArray::ConstPtr &msg)
     {
-        coarseEstimate = new vader_msgs::Pepper();
-        coarseEstimate->header = msg->header;
-        // fineEstimate = new vader_msgs::Pepper();
-        // fineEstimate->header = msg->header;
-        _transformFromCameraFrameIntoRobotFrame(msg, coarseEstimate);
+        coarseEstimates.clear();
+        // ROS_INFO_STREAM("Received " << msg->peppers.size() << " coarse pepper estimates.");
+        for (const vader_msgs::Pepper pepper_msg : msg->peppers)
+        {
+            vader_msgs::Pepper transformed_pepper;
+            // ROS_INFO("Transforming pepper with frame_id: %s", msg->header.frame_id.c_str());
+            _transformFromCameraFrameIntoRobotFrame(pepper_msg, &transformed_pepper);
+            coarseEstimates.push_back(transformed_pepper);
+        }
+        _prioritizeCoarseEstimatePepper(coarseEstimates);
+        // if(coarseEstimate){
         // _transformFromCameraFrameIntoRobotFrame(msg, fineEstimate);
         // _logWithState("Coarse estimate received");
         // _logWithState("Raw message pose: x=" + std::to_string(msg->fruit_data.pose.position.x) +
@@ -215,27 +327,57 @@ public:
         //               std::to_string(msg->fruit_data.pose.orientation.y) + ", " +
         //               std::to_string(msg->fruit_data.pose.orientation.z) + ", " +
         //               std::to_string(msg->fruit_data.pose.orientation.w) + ")");
-        // _logWithState("Transformed pose: x=" + std::to_string(coarseEstimate->fruit_data.pose.position.x) +
-        //               ", y=" + std::to_string(coarseEstimate->fruit_data.pose.position.y) +
-        //               ", z=" + std::to_string(coarseEstimate->fruit_data.pose.position.z) + 
-        //               ", quat=(" + std::to_string(coarseEstimate->fruit_data.pose.orientation.x) + ", " +
-        //               std::to_string(coarseEstimate->fruit_data.pose.orientation.y) + ", " +
-        //               std::to_string(coarseEstimate->fruit_data.pose.orientation.z) + ", " +
-        //               std::to_string(coarseEstimate->fruit_data.pose.orientation.w) + ")");
+            // _logWithState("Transformed pose: x=" + std::to_string(coarseEstimate->fruit_data.pose.position.x) +
+            //             ", y=" + std::to_string(coarseEstimate->fruit_data.pose.position.y) +
+            //             ", z=" + std::to_string(coarseEstimate->fruit_data.pose.position.z) + 
+            //             ", quat=(" + std::to_string(coarseEstimate->fruit_data.pose.orientation.x) + ", " +
+            //             std::to_string(coarseEstimate->fruit_data.pose.orientation.y) + ", " +
+            //             std::to_string(coarseEstimate->fruit_data.pose.orientation.z) + ", " +
+            //             std::to_string(coarseEstimate->fruit_data.pose.orientation.w) + ")");
+        // }
     }
 
-    void setFinePoseEstimate(const vader_msgs::Pepper::ConstPtr &msg)
+    void setFinePoseEstimate(const vader_msgs::PepperArray::ConstPtr &msg)
     {
-        fineEstimate = new vader_msgs::Pepper();
-        fineEstimate->header = msg->header;
-        _transformFromCameraFrameIntoRobotFrame(msg, fineEstimate);
-        // _logWithState("Fine estimate received");
+        fineEstimates.clear();
+        // ROS_INFO_STREAM("Received " << msg->peppers.size() << " fine pepper estimates.");
+        for (const vader_msgs::Pepper pepper_msg : msg->peppers)
+        {
+            if(pepper_msg.peduncle_data.pose.position.x == 0 &&
+               pepper_msg.peduncle_data.pose.position.y == 0 &&
+               pepper_msg.peduncle_data.pose.position.z == 0){
+                continue;
+            }
+            vader_msgs::Pepper transformed_pepper;
+            _transformFromCameraFrameIntoRobotFrame(pepper_msg, &transformed_pepper);
+            fineEstimates.push_back(transformed_pepper);
+        }
+
+        if (!fineEstimates.empty())
+        {
+            // Take the first valid fine estimate
+            for (const auto& pepper : fineEstimates)
+            {
+                if (_pepperReachable(pepper))
+                {
+                    fineEstimate = new vader_msgs::Pepper(pepper);
+                    ROS_INFO_STREAM("Selected fine estimate: x=" << fineEstimate->fruit_data.pose.position.x
+                                << ", y=" << fineEstimate->fruit_data.pose.position.y
+                                << ", z=" << fineEstimate->fruit_data.pose.position.z
+                                << ", quat=(" << fineEstimate->fruit_data.pose.orientation.x << ", "
+                                << fineEstimate->fruit_data.pose.orientation.y << ", "
+                                << fineEstimate->fruit_data.pose.orientation.z << ", "
+                                << fineEstimate->fruit_data.pose.orientation.w << ")");
+                    break;
+                }
+            }
+        }
     }
 
     void execute()
     {
         int num_peppers_harvested = 0;
-        int max_peppers_to_harvest = 3;
+        int max_peppers_to_harvest = 1;
         std::vector<double> harvest_times_sec;
 
         //Start time of each harvest
@@ -303,7 +445,15 @@ public:
                 case State::WaitForCoarseEstimate:{
                     if (coarseEstimate != nullptr)
                     {
-                        _logWithState("Coarse estimate received, switching states");
+                        // _logWithState("Coarse estimate received, switching states");
+                        _logWithState("Transformed pose: x=" + std::to_string(coarseEstimate->fruit_data.pose.position.x) +
+                                      ", y=" + std::to_string(coarseEstimate->fruit_data.pose.position.y) +
+                                      ", z=" + std::to_string(coarseEstimate->fruit_data.pose.position.z) + 
+                                      ", quat=(" + std::to_string(coarseEstimate->fruit_data.pose.orientation.x) + ", " +
+                                      std::to_string(coarseEstimate->fruit_data.pose.orientation.y) + ", " +
+                                      std::to_string(coarseEstimate->fruit_data.pose.orientation.z) + ", " +
+                                      std::to_string(coarseEstimate->fruit_data.pose.orientation.w) + ")");
+                        // currentState = State::Done;
                         currentState = State::ParallelMovePregrasp;
                     }
                     else
@@ -353,6 +503,7 @@ public:
                     if (fineEstimate != nullptr)
                     {
                         _logWithState("Fine estimate received, switching states");
+                        // currentState = State::Done;
                         currentState = State::GripperGrasp;
                     }
                     else
@@ -366,6 +517,13 @@ public:
                     vader_msgs::PlanningRequest srv;
                     srv.request.mode = vader_msgs::PlanningRequest::Request::GRIPPER_GRASP;
                     srv.request.pepper = *fineEstimate;
+                    ROS_INFO_STREAM("Fine estimate for grasp: x=" << fineEstimate->fruit_data.pose.position.x
+                                    << ", y=" << fineEstimate->fruit_data.pose.position.y
+                                    << ", z=" << fineEstimate->fruit_data.pose.position.z
+                                    << ", quat=(" << fineEstimate->fruit_data.pose.orientation.x << ", "
+                                    << fineEstimate->fruit_data.pose.orientation.y << ", "
+                                    << fineEstimate->fruit_data.pose.orientation.z << ", "
+                                    << fineEstimate->fruit_data.pose.orientation.w << ")");
 
                     if (planClient.call(srv))
                     {
@@ -409,7 +567,7 @@ public:
                         if (srv.response.success)
                         {
                             _logWithState("Cutter grasp successful.");
-                            currentState = State::ParallelMoveStorage;
+                            currentState = State::Done;  // First do the cutting action
                         }
                         else
                         {
@@ -438,7 +596,8 @@ public:
                     ros::Duration(2.0).sleep();
                     // _sendGripperCommand(100);
                     // ros::Duration(1.0).sleep();
-                    currentState = State::ParallelMoveStorage;
+                    currentState = State::Done;
+                    // currentState = State::ParallelMoveStorage;
                     break;
                 }
                 case State::ParallelMoveStorage:{
@@ -493,6 +652,7 @@ public:
                     }
                     break;
                 }
+                
                 case State::Done:
                 {
                     // ROS_INFO("Done");
@@ -538,8 +698,9 @@ public:
 
 VADERStateMachine *sm = nullptr;
 
-static void coarseEstimateCallback(const vader_msgs::Pepper::ConstPtr &msg)
+static void coarseEstimateCallback(const vader_msgs::PepperArray::ConstPtr &msg)
 {
+    // ROS_INFO("Coarse estimate callback triggered");
     if (sm != nullptr)
     {
         sm->setCoarsePoseEstimate(msg);
@@ -550,7 +711,7 @@ static void coarseEstimateCallback(const vader_msgs::Pepper::ConstPtr &msg)
     }
 }
 
-static void fineEstimateCallback(const vader_msgs::Pepper::ConstPtr &msg)
+static void fineEstimateCallback(const vader_msgs::PepperArray::ConstPtr &msg)
 {
     if (sm != nullptr)
     {
