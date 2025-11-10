@@ -60,6 +60,10 @@ private:
     vader_msgs::Pepper *coarseEstimate;
     vader_msgs::Pepper *fineEstimate;
 
+    bool allowCoarseEstimateUpdate = true, allowFineEstimateUpdate = true;
+
+    ros::Time waitForFinePoseStartTime;
+
     // Plan/Exec clients connecting to planner
     ros::ServiceClient planClient;
 
@@ -307,6 +311,10 @@ public:
 
     void setCoarsePoseEstimate(const vader_msgs::PepperArray::ConstPtr &msg)
     {
+        if (!allowCoarseEstimateUpdate)
+        {
+            return;
+        }
         coarseEstimates.clear();
         // ROS_INFO_STREAM("Received " << msg->peppers.size() << " coarse pepper estimates.");
         for (const vader_msgs::Pepper pepper_msg : msg->peppers)
@@ -317,6 +325,7 @@ public:
             coarseEstimates.push_back(transformed_pepper);
         }
         _prioritizeCoarseEstimatePepper(coarseEstimates);
+
         // if(coarseEstimate){
         // _transformFromCameraFrameIntoRobotFrame(msg, fineEstimate);
         // _logWithState("Coarse estimate received");
@@ -339,6 +348,10 @@ public:
 
     void setFinePoseEstimate(const vader_msgs::PepperArray::ConstPtr &msg)
     {
+        if (!allowFineEstimateUpdate)
+        {
+            return;
+        }
         fineEstimates.clear();
         // ROS_INFO_STREAM("Received " << msg->peppers.size() << " fine pepper estimates.");
         for (const vader_msgs::Pepper pepper_msg : msg->peppers)
@@ -352,7 +365,7 @@ public:
             _transformFromCameraFrameIntoRobotFrame(pepper_msg, &transformed_pepper);
             fineEstimates.push_back(transformed_pepper);
         }
-        ROS_INFO_STREAM("Transformed fine estimates count: " << fineEstimates.size());
+        // ROS_INFO_STREAM("Transformed fine estimates count: " << fineEstimates.size());
 
         if (!fineEstimates.empty())
         {
@@ -375,6 +388,22 @@ public:
         }
     }
 
+    void setFinePoseEstimateWithCoarsePoseEst(){
+        fineEstimate = new vader_msgs::Pepper(*coarseEstimate);
+        fineEstimate->header.frame_id = "world";
+        fineEstimate->fruit_data.pose.orientation.x = 0;
+        fineEstimate->fruit_data.pose.orientation.y = 0;
+        fineEstimate->fruit_data.pose.orientation.z = 0;
+        fineEstimate->fruit_data.pose.orientation.w = 1;
+        fineEstimate->peduncle_data.pose.orientation.x = 0;
+        fineEstimate->peduncle_data.pose.orientation.y = 0;
+        fineEstimate->peduncle_data.pose.orientation.z = 0;
+        fineEstimate->peduncle_data.pose.orientation.w = 1;
+        fineEstimate->peduncle_data.pose.position.x = fineEstimate->fruit_data.pose.position.x;
+        fineEstimate->peduncle_data.pose.position.y = fineEstimate->fruit_data.pose.position.y;
+        fineEstimate->peduncle_data.pose.position.z = fineEstimate->fruit_data.pose.position.z + 0.05; // approximate peduncle position
+    }
+
     void execute()
     {
         int num_peppers_harvested = 0;
@@ -392,6 +421,8 @@ public:
             {
                 case State::HomeGripper:{
                     harvest_start_time = ros::Time::now();
+                    allowCoarseEstimateUpdate = true;
+                    allowFineEstimateUpdate = true;
                     _logWithState("Homing gripper...");
                     _sendGripperCommand(100);
                     vader_msgs::PlanningRequest srv;
@@ -460,6 +491,8 @@ public:
                     else
                     {
                         _logWithState("Waiting for coarse estimate");
+                        ROS_WARN_STREAM("NOTE: " << coarseEstimates.size() << " coarse estimates found but outside of workspace bounds.");
+                        //TODO add comment about out of range peppers
                         // _logWithState("Using fake estimate");
                         // geometry_msgs::Pose fake_pose;
                         // fake_pose.position.x = 1.0;
@@ -474,6 +507,7 @@ public:
                     break;
                 }
                 case State::ParallelMovePregrasp:{
+                    allowCoarseEstimateUpdate = false;
                     _logWithState("Planning parallel move to pregrasp...");
                     vader_msgs::PlanningRequest srv;
                     srv.request.mode = vader_msgs::PlanningRequest::Request::PARALLEL_MOVE_PREGRASP;
@@ -485,6 +519,7 @@ public:
                         {
                             _logWithState("Parallel move to pregrasp successful.");
                             currentState = State::WaitForFineEstimate;
+                            waitForFinePoseStartTime = ros::Time::now();
                         }
                         else
                         {
@@ -505,11 +540,21 @@ public:
                     {
                         _logWithState("Fine estimate received, switching states");
                         // currentState = State::Done;
+                        allowFineEstimateUpdate = false;
+                        waitForFinePoseStartTime = ros::Time(0);
                         currentState = State::GripperGrasp;
                     }
                     else
                     {
                         _logWithState("Waiting for fine estimate");
+
+                        if(!waitForFinePoseStartTime.isZero()){
+                            ros::Duration wait_duration = ros::Time::now() - waitForFinePoseStartTime;
+                            if(wait_duration.toSec() > 5.0 && allowFineEstimateUpdate){
+                                ROS_WARN("Timeout waiting for fine pose estimate. Proceeding with coarse estimate.");
+                                setFinePoseEstimateWithCoarsePoseEst();
+                            }
+                        }
                     }
                     break;
                 }
