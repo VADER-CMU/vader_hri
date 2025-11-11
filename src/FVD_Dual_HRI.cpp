@@ -592,16 +592,6 @@ public:
                     }
                     break;
                 }
-                case State::GripperEndEffector:
-                {
-                    _logWithState("Grasping fruit");
-                    _sendGripperCommand(0);
-                    ros::Duration(5.0).sleep();
-                    // _sendGripperCommand(100);
-                    // ros::Duration(1.0).sleep();
-                    currentState = State::CutterGrasp;
-                    break;
-                }
                 case State::CutterGrasp:{
                     _logWithState("Planning cutter grasp...");
                     vader_msgs::PlanningRequest srv;
@@ -613,7 +603,7 @@ public:
                         if (srv.response.success)
                         {
                             _logWithState("Cutter grasp successful.");
-                            currentState = State::Done;  // First do the cutting action
+                            currentState = State::GripperEndEffector;  // First do the cutting action
                         }
                         else
                         {
@@ -627,6 +617,16 @@ public:
                         _logWithState("Failed to call planning service for cutter grasp.");
                         currentState = State::Error;
                     }
+                    break;
+                }
+                case State::GripperEndEffector:
+                {
+                    _logWithState("Grasping fruit");
+                    _sendGripperCommand(0);
+                    ros::Duration(3.0).sleep();
+                    // _sendGripperCommand(100);
+                    // ros::Duration(1.0).sleep();
+                    currentState = State::ParallelMoveStorage;
                     break;
                 }
                 case State::CutterEndEffector:

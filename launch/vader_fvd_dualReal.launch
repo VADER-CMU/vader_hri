@@ -14,7 +14,7 @@
     </include>
 
     <!-- end effectors -->
-    <!-- <node pkg="vader_dynamixel" type="dynamixel_node.py" name="dynamixel" output="screen"/> -->
+    <node pkg="vader_dynamixel" type="dynamixel_node.py" name="dynamixel" output="screen"/>
 
     <include file="$(find vader_perception)/launch/gripper_cam_pose_estimation.launch"></include>
 </launch>
