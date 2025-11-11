@@ -1,6 +1,6 @@
 <launch>
     <!-- TF -->
-    <node pkg="vader_planner" type="cam_transform_publisher.py" name="tform"/>
+    <node pkg="vader_planner" type="cam_transform_publisher.py" name="tform" output="screen"/>
     
     <!-- HRI state machine node -->
     <node pkg="vader_hri" type="FVD_Dual_HRI" name="FVD_Dual_HRI" output="screen">

@@ -198,7 +198,7 @@ private:
         double x_max = 1.05;
         double y_min = 0;
         double y_max = 0.5;
-        double z_min = 0.3;
+        double z_min = 0.2;
         double z_max = 0.6;
 
         bool result = true;
@@ -367,21 +367,25 @@ public:
         }
         // ROS_INFO_STREAM("Transformed fine estimates count: " << fineEstimates.size());
 
-        if (!fineEstimates.empty())
+        if (!fineEstimates.empty() && coarseEstimate != nullptr)
         {
             // Take the first valid fine estimate
             for (const auto& pepper : fineEstimates)
             {
-                if (_pepperReachable(pepper))
+                double distToCoarseEstimate = sqrt(
+                    pow(pepper.fruit_data.pose.position.x - coarseEstimate->fruit_data.pose.position.x, 2) +
+                    pow(pepper.fruit_data.pose.position.y - coarseEstimate->fruit_data.pose.position.y, 2) +
+                    pow(pepper.fruit_data.pose.position.z - coarseEstimate->fruit_data.pose.position.z, 2));
+                if (_pepperReachable(pepper) && distToCoarseEstimate < 0.1)
                 {
                     fineEstimate = new vader_msgs::Pepper(pepper);
-                    ROS_INFO_STREAM("Selected fine estimate: x=" << fineEstimate->fruit_data.pose.position.x
-                                << ", y=" << fineEstimate->fruit_data.pose.position.y
-                                << ", z=" << fineEstimate->fruit_data.pose.position.z
-                                << ", quat=(" << fineEstimate->fruit_data.pose.orientation.x << ", "
-                                << fineEstimate->fruit_data.pose.orientation.y << ", "
-                                << fineEstimate->fruit_data.pose.orientation.z << ", "
-                                << fineEstimate->fruit_data.pose.orientation.w << ")");
+                    // ROS_INFO_STREAM("Selected fine estimate: x=" << fineEstimate->fruit_data.pose.position.x
+                    //             << ", y=" << fineEstimate->fruit_data.pose.position.y
+                    //             << ", z=" << fineEstimate->fruit_data.pose.position.z
+                    //             << ", quat=(" << fineEstimate->fruit_data.pose.orientation.x << ", "
+                    //             << fineEstimate->fruit_data.pose.orientation.y << ", "
+                    //             << fineEstimate->fruit_data.pose.orientation.z << ", "
+                    //             << fineEstimate->fruit_data.pose.orientation.w << ")");
                     break;
                 }
             }
@@ -626,7 +630,7 @@ public:
                     ros::Duration(3.0).sleep();
                     // _sendGripperCommand(100);
                     // ros::Duration(1.0).sleep();
-                    currentState = State::ParallelMoveStorage;
+                    currentState = State::CutterEndEffector;
                     break;
                 }
                 case State::CutterEndEffector:
@@ -642,8 +646,8 @@ public:
                     ros::Duration(2.0).sleep();
                     // _sendGripperCommand(100);
                     // ros::Duration(1.0).sleep();
-                    currentState = State::Done;
-                    // currentState = State::ParallelMoveStorage;
+                    // currentState = State::Done;
+                    currentState = State::ParallelMoveStorage;
                     break;
                 }
                 case State::ParallelMoveStorage:{
