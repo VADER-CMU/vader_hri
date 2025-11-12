@@ -22,8 +22,13 @@
 #include <tf2_ros/buffer.h>
 #include <geometry_msgs/PoseStamped.h>
 
+#include <moveit_visual_tools/moveit_visual_tools.h>
+
+
 static void coarseEstimateCallback(const vader_msgs::PepperArray::ConstPtr &msg);
 static void fineEstimateCallback(const vader_msgs::PepperArray::ConstPtr &msg);
+
+namespace rvt = rviz_visual_tools;
 
 class VADERStateMachine
 {
@@ -43,11 +48,11 @@ private:
         CutterGrasp,
         CutterEndEffector,
     // -----------Finish and cleanup-----------
-    ParallelMoveStorage,
-    HomeGripper2,
-    Done,
-    Error,
-    End
+        ParallelMoveStorage,
+        HomeGripper2,
+        Done,
+        Error,
+        End
     };
 
     State currentState;
@@ -63,6 +68,7 @@ private:
     bool allowCoarseEstimateUpdate = true, allowFineEstimateUpdate = true;
 
     ros::Time waitForFinePoseStartTime;
+    moveit_visual_tools::MoveItVisualToolsPtr visual_tools = std::make_shared<moveit_visual_tools::MoveItVisualTools>("world"); //shared from planner server main instance
 
     // Plan/Exec clients connecting to planner
     ros::ServiceClient planClient;
@@ -158,6 +164,39 @@ private:
         {
             ROS_WARN("Transform failed: %s", ex.what());
         }
+    }
+
+    void visualizePepper(vader_msgs::Pepper pepper_estimate) {
+        
+        //Visualize as a visual tools marker
+        std_msgs::ColorRGBA pepper_color;
+        // green
+        pepper_color.r = 0.0f;
+        pepper_color.g = 1.0f;
+        pepper_color.b = 0.0f;
+        pepper_color.a = 0.8f; // semi-transparent
+        ROS_INFO_STREAM("Visualizing pepper at: x=" << pepper_estimate.fruit_data.pose.position.x
+                            << ", y=" << pepper_estimate.fruit_data.pose.position.y
+                            << ", z=" << pepper_estimate.fruit_data.pose.position.z
+                            << ", quat=(" << pepper_estimate.fruit_data.pose.orientation.x << ", "
+                            << pepper_estimate.fruit_data.pose.orientation.y << ", "
+                            << pepper_estimate.fruit_data.pose.orientation.z << ", "
+                            << pepper_estimate.fruit_data.pose.orientation.w << ")");
+        visual_tools->publishCylinder(pepper_estimate.fruit_data.pose, pepper_color, pepper_estimate.fruit_data.shape.dimensions[0], pepper_estimate.fruit_data.shape.dimensions[1]*2);
+        if(pepper_estimate.peduncle_data.pose.position.x == 0 &&
+           pepper_estimate.peduncle_data.pose.position.y == 0 &&
+           pepper_estimate.peduncle_data.pose.position.z == 0){
+            visual_tools->trigger();
+            return;
+        }
+        std_msgs::ColorRGBA peduncle_color;
+        // brown
+        peduncle_color.r = 0.6f;
+        peduncle_color.g = 0.3f;
+        peduncle_color.b = 0.0f;
+        peduncle_color.a = 0.8f; // semi-transparent
+        visual_tools->publishCylinder(pepper_estimate.peduncle_data.pose, peduncle_color, pepper_estimate.peduncle_data.shape.dimensions[0], pepper_estimate.peduncle_data.shape.dimensions[1]*2);
+        visual_tools->trigger();
     }
 
     void _sendGripperCommand(int open_pct)
@@ -280,9 +319,9 @@ public:
     VADERStateMachine() : currentState(State::HomeGripper)
     {
         coarseEstimate = nullptr;
-        coarseEstimateSub = n.subscribe("/coarse_pepper_array", 10, coarseEstimateCallback);
+        coarseEstimateSub = n.subscribe("/gripper_coarse_pepper_array", 10, coarseEstimateCallback);
         fineEstimate = nullptr;
-        fineEstimateSub = n.subscribe("/fine_pepper_array", 10, fineEstimateCallback);
+        fineEstimateSub = n.subscribe("/gripper_fine_pepper_array", 10, fineEstimateCallback);
 
         planClient = n.serviceClient<vader_msgs::PlanningRequest>("vader_planning_service");
 
@@ -316,13 +355,19 @@ public:
             return;
         }
         coarseEstimates.clear();
+        visual_tools->deleteAllMarkers();
         // ROS_INFO_STREAM("Received " << msg->peppers.size() << " coarse pepper estimates.");
         for (const vader_msgs::Pepper pepper_msg : msg->peppers)
         {
             vader_msgs::Pepper transformed_pepper;
             // ROS_INFO("Transforming pepper with frame_id: %s", msg->header.frame_id.c_str());
             _transformFromCameraFrameIntoRobotFrame(pepper_msg, &transformed_pepper);
+            transformed_pepper.fruit_data.pose.orientation.x = 0;
+            transformed_pepper.fruit_data.pose.orientation.y = 0;
+            transformed_pepper.fruit_data.pose.orientation.z = 0;
+            transformed_pepper.fruit_data.pose.orientation.w = 1;
             coarseEstimates.push_back(transformed_pepper);
+            
         }
         _prioritizeCoarseEstimatePepper(coarseEstimates);
 
@@ -364,6 +409,7 @@ public:
             vader_msgs::Pepper transformed_pepper;
             _transformFromCameraFrameIntoRobotFrame(pepper_msg, &transformed_pepper);
             fineEstimates.push_back(transformed_pepper);
+            visualizePepper(transformed_pepper);
         }
         // ROS_INFO_STREAM("Transformed fine estimates count: " << fineEstimates.size());
 
@@ -392,20 +438,21 @@ public:
         }
     }
 
-    void setFinePoseEstimateWithCoarsePoseEst(){
-        fineEstimate = new vader_msgs::Pepper(*coarseEstimate);
-        fineEstimate->header.frame_id = "world";
-        fineEstimate->fruit_data.pose.orientation.x = 0;
-        fineEstimate->fruit_data.pose.orientation.y = 0;
-        fineEstimate->fruit_data.pose.orientation.z = 0;
-        fineEstimate->fruit_data.pose.orientation.w = 1;
-        fineEstimate->peduncle_data.pose.orientation.x = 0;
-        fineEstimate->peduncle_data.pose.orientation.y = 0;
-        fineEstimate->peduncle_data.pose.orientation.z = 0;
-        fineEstimate->peduncle_data.pose.orientation.w = 1;
-        fineEstimate->peduncle_data.pose.position.x = fineEstimate->fruit_data.pose.position.x;
-        fineEstimate->peduncle_data.pose.position.y = fineEstimate->fruit_data.pose.position.y;
-        fineEstimate->peduncle_data.pose.position.z = fineEstimate->fruit_data.pose.position.z + 0.05; // approximate peduncle position
+    vader_msgs::Pepper setFinePoseEstimateWithCoarsePoseEst(const vader_msgs::Pepper &coarseEstimate){
+        vader_msgs::Pepper fakeFineEstimate = (coarseEstimate);
+        fakeFineEstimate.header.frame_id = "world";
+        fakeFineEstimate.fruit_data.pose.orientation.x = 0;
+        fakeFineEstimate.fruit_data.pose.orientation.y = 0;
+        fakeFineEstimate.fruit_data.pose.orientation.z = 0;
+        fakeFineEstimate.fruit_data.pose.orientation.w = 1;
+        fakeFineEstimate.peduncle_data.pose.orientation.x = 0;
+        fakeFineEstimate.peduncle_data.pose.orientation.y = 0;
+        fakeFineEstimate.peduncle_data.pose.orientation.z = 0;
+        fakeFineEstimate.peduncle_data.pose.orientation.w = 1;
+        fakeFineEstimate.peduncle_data.pose.position.x = fakeFineEstimate.fruit_data.pose.position.x;
+        fakeFineEstimate.peduncle_data.pose.position.y = fakeFineEstimate.fruit_data.pose.position.y;
+        fakeFineEstimate.peduncle_data.pose.position.z = fakeFineEstimate.fruit_data.pose.position.z + 0.05; // approximate peduncle position
+        return fakeFineEstimate;
     }
 
     void execute()
@@ -489,6 +536,8 @@ public:
                                       std::to_string(coarseEstimate->fruit_data.pose.orientation.y) + ", " +
                                       std::to_string(coarseEstimate->fruit_data.pose.orientation.z) + ", " +
                                       std::to_string(coarseEstimate->fruit_data.pose.orientation.w) + ")");
+                        visual_tools->deleteAllMarkers();
+                        visualizePepper(*coarseEstimate);
                         // currentState = State::Done;
                         currentState = State::ParallelMovePregrasp;
                     }
@@ -547,6 +596,8 @@ public:
                         allowFineEstimateUpdate = false;
                         waitForFinePoseStartTime = ros::Time(0);
                         currentState = State::GripperGrasp;
+                        visual_tools->deleteAllMarkers();
+                        visualizePepper(*fineEstimate);
                     }
                     else
                     {
@@ -556,7 +607,11 @@ public:
                             ros::Duration wait_duration = ros::Time::now() - waitForFinePoseStartTime;
                             if(wait_duration.toSec() > 5.0 && allowFineEstimateUpdate){
                                 ROS_WARN("Timeout waiting for fine pose estimate. Proceeding with coarse estimate.");
-                                setFinePoseEstimateWithCoarsePoseEst();
+                                vader_msgs::Pepper fakeFineEstimate = setFinePoseEstimateWithCoarsePoseEst(*coarseEstimate);
+                                fineEstimate = new vader_msgs::Pepper(fakeFineEstimate);
+                                allowFineEstimateUpdate = false;
+                                
+                                // *fineEstimate = setFinePoseEstimateWithCoarsePoseEst(*coarseEstimate);
                             }
                         }
                     }
@@ -607,7 +662,7 @@ public:
                         if (srv.response.success)
                         {
                             _logWithState("Cutter grasp successful.");
-                            currentState = State::GripperEndEffector;  // First do the cutting action
+                            currentState = State::End;  // First do the cutting action
                         }
                         else
                         {

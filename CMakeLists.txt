@@ -10,6 +10,7 @@ project(vader_hri)
 find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy
+  moveit_visual_tools
   std_msgs
   vader_msgs
   tf2
@@ -113,6 +114,7 @@ catkin_package(
 #  LIBRARIES vader_hri
 #  CATKIN_DEPENDS roscpp rospy std_msgs vader_msgs
 #  DEPENDS system_lib
+  CATKIN_DEPENDS moveit_visual_tools
 )
 
 ###########
