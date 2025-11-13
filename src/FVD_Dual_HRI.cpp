@@ -425,6 +425,29 @@ public:
                 if (_pepperReachable(pepper) && distToCoarseEstimate < 0.1)
                 {
                     fineEstimate = new vader_msgs::Pepper(pepper);
+                
+                    // compute rotation angle from quaternion relative to identity
+                    const auto &q = fineEstimate->fruit_data.pose.orientation;
+                    double qw = q.w;
+                    double angle_rad = 2.0 * acos(fabs(qw));
+                    double angle_deg = angle_rad * 180.0 / M_PI;
+                    ROS_INFO_STREAM("Fine estimate rotation magnitude: " << angle_deg << " degrees");
+                    if (angle_deg > 30.0) {
+                        fineEstimate->fruit_data.pose.orientation.x = 0.0;
+                        fineEstimate->fruit_data.pose.orientation.y = 0.0;
+                        fineEstimate->fruit_data.pose.orientation.z = 0.0;
+                        fineEstimate->fruit_data.pose.orientation.w = 1.0;
+                        
+                        fineEstimate->peduncle_data.pose.position.x = fineEstimate->fruit_data.pose.position.x;
+                        fineEstimate->peduncle_data.pose.position.y = fineEstimate->fruit_data.pose.position.y;
+                        fineEstimate->peduncle_data.pose.position.z = fineEstimate->fruit_data.pose.position.z + 0.035;
+                        fineEstimate->peduncle_data.pose.orientation.x = 0.0;
+                        fineEstimate->peduncle_data.pose.orientation.y = 0.0;
+                        fineEstimate->peduncle_data.pose.orientation.z = 0.0;
+                        fineEstimate->peduncle_data.pose.orientation.w = 1.0;
+                        ROS_WARN_STREAM("Rotation > 30 deg; resetting fine estimate fruit orientation to identity");
+                    }
+                
                     // ROS_INFO_STREAM("Selected fine estimate: x=" << fineEstimate->fruit_data.pose.position.x
                     //             << ", y=" << fineEstimate->fruit_data.pose.position.y
                     //             << ", z=" << fineEstimate->fruit_data.pose.position.z
@@ -458,7 +481,7 @@ public:
     void execute()
     {
         int num_peppers_harvested = 0;
-        int max_peppers_to_harvest = 2;
+        int max_peppers_to_harvest = 3;
         std::vector<double> harvest_times_sec;
 
         //Start time of each harvest
@@ -537,7 +560,7 @@ public:
                                       std::to_string(coarseEstimate->fruit_data.pose.orientation.z) + ", " +
                                       std::to_string(coarseEstimate->fruit_data.pose.orientation.w) + ")");
                         visual_tools->deleteAllMarkers();
-                        visualizePepper(*coarseEstimate);
+                        // visualizePepper(*coarseEstimate);
                         // currentState = State::Done;
                         currentState = State::ParallelMovePregrasp;
                     }
@@ -591,11 +614,20 @@ public:
                 case State::WaitForFineEstimate:{
                     if (fineEstimate != nullptr)
                     {
-                        _logWithState("Fine estimate received, switching states");
+                        // _logWithState("Fine estimate received, switching states");
+                        // _logWithState("Transformed FINE pose: x=" + std::to_string(fineEstimate->fruit_data.pose.position.x) +
+                        //               ", y=" + std::to_string(fineEstimate->fruit_data.pose.position.y) +
+                        //               ", z=" + std::to_string(fineEstimate->fruit_data.pose.position.z) + 
+                        //               ", quat=(" + std::to_string(fineEstimate->fruit_data.pose.orientation.x) + ", " +
+                        //               std::to_string(fineEstimate->fruit_data.pose.orientation.y) + ", " +
+                        //               std::to_string(fineEstimate->fruit_data.pose.orientation.z) + ", " +
+                        //               std::to_string(fineEstimate->fruit_data.pose.orientation.w) + ")");
+
                         // currentState = State::Done;
                         allowFineEstimateUpdate = false;
                         waitForFinePoseStartTime = ros::Time(0);
                         currentState = State::GripperGrasp;
+                        // currentState = State::Done;
                         visual_tools->deleteAllMarkers();
                         visualizePepper(*fineEstimate);
                     }
@@ -605,7 +637,7 @@ public:
 
                         if(!waitForFinePoseStartTime.isZero()){
                             ros::Duration wait_duration = ros::Time::now() - waitForFinePoseStartTime;
-                            if(wait_duration.toSec() > 5.0 && allowFineEstimateUpdate){
+                            if(wait_duration.toSec() > 20.0 && allowFineEstimateUpdate){
                                 ROS_WARN("Timeout waiting for fine pose estimate. Proceeding with coarse estimate.");
                                 vader_msgs::Pepper fakeFineEstimate = setFinePoseEstimateWithCoarsePoseEst(*coarseEstimate);
                                 fineEstimate = new vader_msgs::Pepper(fakeFineEstimate);
@@ -662,7 +694,7 @@ public:
                         if (srv.response.success)
                         {
                             _logWithState("Cutter grasp successful.");
-                            currentState = State::End;  // First do the cutting action
+                            currentState = State::GripperEndEffector;  // First do the cutting action
                         }
                         else
                         {
@@ -685,7 +717,7 @@ public:
                     ros::Duration(3.0).sleep();
                     // _sendGripperCommand(100);
                     // ros::Duration(1.0).sleep();
-                    currentState = State::CutterEndEffector;
+                    currentState = State::ParallelMoveStorage;
                     break;
                 }
                 case State::CutterEndEffector:
