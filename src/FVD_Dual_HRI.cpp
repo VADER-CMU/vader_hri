@@ -30,6 +30,8 @@ static void fineEstimateCallback(const vader_msgs::PepperArray::ConstPtr &msg);
 
 namespace rvt = rviz_visual_tools;
 
+double REJECT_FINE_POSE_BEYOND_ANGLE_DEGREES = 40;
+
 class VADERStateMachine
 {
 private:
@@ -360,7 +362,6 @@ public:
         for (const vader_msgs::Pepper pepper_msg : msg->peppers)
         {
             vader_msgs::Pepper transformed_pepper;
-            // ROS_INFO("Transforming pepper with frame_id: %s", msg->header.frame_id.c_str());
             _transformFromCameraFrameIntoRobotFrame(pepper_msg, &transformed_pepper);
             transformed_pepper.fruit_data.pose.orientation.x = 0;
             transformed_pepper.fruit_data.pose.orientation.y = 0;
@@ -409,7 +410,7 @@ public:
             vader_msgs::Pepper transformed_pepper;
             _transformFromCameraFrameIntoRobotFrame(pepper_msg, &transformed_pepper);
             fineEstimates.push_back(transformed_pepper);
-            visualizePepper(transformed_pepper);
+            // visualizePepper(transformed_pepper);
         }
         // ROS_INFO_STREAM("Transformed fine estimates count: " << fineEstimates.size());
 
@@ -431,8 +432,8 @@ public:
                     double qw = q.w;
                     double angle_rad = 2.0 * acos(fabs(qw));
                     double angle_deg = angle_rad * 180.0 / M_PI;
-                    ROS_INFO_STREAM("Fine estimate rotation magnitude: " << angle_deg << " degrees");
-                    if (angle_deg > 30.0 && angle_deg < 150.0) {
+                    // ROS_INFO_STREAM("Fine estimate rotation magnitude: " << angle_deg << " degrees");
+                    if (angle_deg > REJECT_FINE_POSE_BEYOND_ANGLE_DEGREES && angle_deg < (180.0 - REJECT_FINE_POSE_BEYOND_ANGLE_DEGREES)) {
                         fineEstimate->fruit_data.pose.orientation.x = 0.0;
                         fineEstimate->fruit_data.pose.orientation.y = 0.0;
                         fineEstimate->fruit_data.pose.orientation.z = 0.0;
@@ -445,7 +446,7 @@ public:
                         fineEstimate->peduncle_data.pose.orientation.y = 0.0;
                         fineEstimate->peduncle_data.pose.orientation.z = 0.0;
                         fineEstimate->peduncle_data.pose.orientation.w = 1.0;
-                        ROS_WARN_STREAM("Rotation > 30 deg; resetting fine estimate fruit orientation to identity");
+                        ROS_WARN_STREAM("Rotation > " << REJECT_FINE_POSE_BEYOND_ANGLE_DEGREES << " deg; resetting fine estimate fruit orientation to identity");
                     }
                 
                     // ROS_INFO_STREAM("Selected fine estimate: x=" << fineEstimate->fruit_data.pose.position.x
@@ -551,7 +552,7 @@ public:
                 case State::WaitForCoarseEstimate:{
                     if (coarseEstimate != nullptr)
                     {
-                        // _logWithState("Coarse estimate received, switching states");
+                        _logWithState("Coarse estimate received, switching states");
                         _logWithState("Transformed pose: x=" + std::to_string(coarseEstimate->fruit_data.pose.position.x) +
                                       ", y=" + std::to_string(coarseEstimate->fruit_data.pose.position.y) +
                                       ", z=" + std::to_string(coarseEstimate->fruit_data.pose.position.z) + 
@@ -560,8 +561,6 @@ public:
                                       std::to_string(coarseEstimate->fruit_data.pose.orientation.z) + ", " +
                                       std::to_string(coarseEstimate->fruit_data.pose.orientation.w) + ")");
                         visual_tools->deleteAllMarkers();
-                        // visualizePepper(*coarseEstimate);
-                        // currentState = State::Done;
                         currentState = State::ParallelMovePregrasp;
                     }
                     else
@@ -614,20 +613,18 @@ public:
                 case State::WaitForFineEstimate:{
                     if (fineEstimate != nullptr)
                     {
-                        // _logWithState("Fine estimate received, switching states");
-                        // _logWithState("Transformed FINE pose: x=" + std::to_string(fineEstimate->fruit_data.pose.position.x) +
-                        //               ", y=" + std::to_string(fineEstimate->fruit_data.pose.position.y) +
-                        //               ", z=" + std::to_string(fineEstimate->fruit_data.pose.position.z) + 
-                        //               ", quat=(" + std::to_string(fineEstimate->fruit_data.pose.orientation.x) + ", " +
-                        //               std::to_string(fineEstimate->fruit_data.pose.orientation.y) + ", " +
-                        //               std::to_string(fineEstimate->fruit_data.pose.orientation.z) + ", " +
-                        //               std::to_string(fineEstimate->fruit_data.pose.orientation.w) + ")");
+                        _logWithState("Fine estimate received, switching states");
+                        _logWithState("Transformed FINE pose: x=" + std::to_string(fineEstimate->fruit_data.pose.position.x) +
+                                      ", y=" + std::to_string(fineEstimate->fruit_data.pose.position.y) +
+                                      ", z=" + std::to_string(fineEstimate->fruit_data.pose.position.z) + 
+                                      ", quat=(" + std::to_string(fineEstimate->fruit_data.pose.orientation.x) + ", " +
+                                      std::to_string(fineEstimate->fruit_data.pose.orientation.y) + ", " +
+                                      std::to_string(fineEstimate->fruit_data.pose.orientation.z) + ", " +
+                                      std::to_string(fineEstimate->fruit_data.pose.orientation.w) + ")");
 
-                        // currentState = State::Done;
                         allowFineEstimateUpdate = false;
                         waitForFinePoseStartTime = ros::Time(0);
                         currentState = State::GripperGrasp;
-                        // currentState = State::Done;
                         visual_tools->deleteAllMarkers();
                         visualizePepper(*fineEstimate);
                     }
@@ -713,7 +710,7 @@ public:
                 case State::GripperEndEffector:
                 {
                     _logWithState("Grasping fruit");
-                    _sendGripperCommand(30);
+                    _sendGripperCommand(20);
                     ros::Duration(3.0).sleep();
                     // _sendGripperCommand(100);
                     // ros::Duration(1.0).sleep();
