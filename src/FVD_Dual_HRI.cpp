@@ -432,7 +432,7 @@ public:
                     double angle_rad = 2.0 * acos(fabs(qw));
                     double angle_deg = angle_rad * 180.0 / M_PI;
                     ROS_INFO_STREAM("Fine estimate rotation magnitude: " << angle_deg << " degrees");
-                    if (angle_deg > 30.0) {
+                    if (angle_deg > 30.0 && angle_deg < 150.0) {
                         fineEstimate->fruit_data.pose.orientation.x = 0.0;
                         fineEstimate->fruit_data.pose.orientation.y = 0.0;
                         fineEstimate->fruit_data.pose.orientation.z = 0.0;
@@ -713,7 +713,7 @@ public:
                 case State::GripperEndEffector:
                 {
                     _logWithState("Grasping fruit");
-                    _sendGripperCommand(0);
+                    _sendGripperCommand(30);
                     ros::Duration(3.0).sleep();
                     // _sendGripperCommand(100);
                     // ros::Duration(1.0).sleep();
