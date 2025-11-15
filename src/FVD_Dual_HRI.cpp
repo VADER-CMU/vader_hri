@@ -30,7 +30,7 @@ static void fineEstimateCallback(const vader_msgs::PepperArray::ConstPtr &msg);
 
 namespace rvt = rviz_visual_tools;
 
-double REJECT_FINE_POSE_BEYOND_ANGLE_DEGREES = 40;
+double REJECT_FINE_POSE_BEYOND_ANGLE_DEGREES = 30;
 
 class VADERStateMachine
 {
@@ -634,7 +634,7 @@ public:
 
                         if(!waitForFinePoseStartTime.isZero()){
                             ros::Duration wait_duration = ros::Time::now() - waitForFinePoseStartTime;
-                            if(wait_duration.toSec() > 20.0 && allowFineEstimateUpdate){
+                            if(wait_duration.toSec() > 3.0 && allowFineEstimateUpdate){
                                 ROS_WARN("Timeout waiting for fine pose estimate. Proceeding with coarse estimate.");
                                 vader_msgs::Pepper fakeFineEstimate = setFinePoseEstimateWithCoarsePoseEst(*coarseEstimate);
                                 fineEstimate = new vader_msgs::Pepper(fakeFineEstimate);
