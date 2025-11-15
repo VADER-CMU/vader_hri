@@ -30,7 +30,8 @@ static void fineEstimateCallback(const vader_msgs::PepperArray::ConstPtr &msg);
 
 namespace rvt = rviz_visual_tools;
 
-double REJECT_FINE_POSE_BEYOND_ANGLE_DEGREES = 30;
+const double REJECT_FINE_POSE_BEYOND_ANGLE_DEGREES = 30;
+const bool SKIP_WORKSPACE_BOUNDS_CHECK = false;
 
 class VADERStateMachine
 {
@@ -235,6 +236,9 @@ private:
 
     bool _pepperReachable(const vader_msgs::Pepper &pepper)
     {
+        if (SKIP_WORKSPACE_BOUNDS_CHECK){
+            return true;
+        }
         double x_min = 0.7;
         double x_max = 1.05;
         double y_min = 0;
@@ -482,14 +486,15 @@ public:
     void execute()
     {
         int num_peppers_harvested = 0;
-        int max_peppers_to_harvest = 3;
+        int max_peppers_to_harvest = 99;
         std::vector<double> harvest_times_sec;
 
         //Start time of each harvest
         ros::Time harvest_start_time;
 
+        ros::Time printCoarsePoseWaitingMsgTime = ros::Time(0);
 
-        ros::Rate loop_rate(10);
+        ros::Rate loop_rate(20);
         while (ros::ok())
         {
             switch (currentState)
@@ -550,6 +555,10 @@ public:
                     break;
                 }
                 case State::WaitForCoarseEstimate:{
+                    if (printCoarsePoseWaitingMsgTime.isZero()){
+                        //Start tracking print timer
+                        printCoarsePoseWaitingMsgTime = ros::Time::now();
+                    }
                     if (coarseEstimate != nullptr)
                     {
                         _logWithState("Coarse estimate received, switching states");
@@ -560,24 +569,19 @@ public:
                                       std::to_string(coarseEstimate->fruit_data.pose.orientation.y) + ", " +
                                       std::to_string(coarseEstimate->fruit_data.pose.orientation.z) + ", " +
                                       std::to_string(coarseEstimate->fruit_data.pose.orientation.w) + ")");
+                        printCoarsePoseWaitingMsgTime = ros::Time(0);
                         visual_tools->deleteAllMarkers();
                         currentState = State::ParallelMovePregrasp;
                     }
                     else
                     {
-                        _logWithState("Waiting for coarse estimate");
-                        ROS_WARN_STREAM("NOTE: " << coarseEstimates.size() << " coarse estimates found but outside of workspace bounds.");
-                        //TODO add comment about out of range peppers
-                        // _logWithState("Using fake estimate");
-                        // geometry_msgs::Pose fake_pose;
-                        // fake_pose.position.x = 1.0;
-                        // fake_pose.position.y = 0.2;
-                        // fake_pose.position.z = 0.3;
-                        // fake_pose.orientation.x = 0.0;
-                        // fake_pose.orientation.y = 0.0;
-                        // fake_pose.orientation.z = 0.0;
-                        // fake_pose.orientation.w = 1.0;
-                        // fakePepperPoseEstimate(fake_pose);
+                        if((ros::Time::now() - printCoarsePoseWaitingMsgTime).toSec() > 3.0){
+                            printCoarsePoseWaitingMsgTime = ros::Time::now();
+                            _logWithState("Still waiting for coarse estimate");
+                            if(!coarseEstimates.empty()){
+                                ROS_INFO_STREAM("NOTE: " << coarseEstimates.size() << " coarse estimates found but outside of workspace bounds.");
+                            }
+                        }
                     }
                     break;
                 }
@@ -599,11 +603,13 @@ public:
                         else
                         {
                             _logWithState("Parallel move to pregrasp failed.");
-                            currentState = State::Error;
+                            ROS_ERROR_NAMED("vader_hri", "Falling back to Home Poses and trying again...");
+                            currentState = State::HomeGripper;
                         }
                     }
                     else
                     {
+                        //Call to planner itself failed (not that planner failed). Something with ROS is wrong. We should never see this
                         _publishResultStatus(srv.response.success, "Failed to move to pregrasp.");
                         _logWithState("Failed to call planning service for parallel move to pregrasp.");
                         currentState = State::Error;
@@ -630,8 +636,6 @@ public:
                     }
                     else
                     {
-                        _logWithState("Waiting for fine estimate");
-
                         if(!waitForFinePoseStartTime.isZero()){
                             ros::Duration wait_duration = ros::Time::now() - waitForFinePoseStartTime;
                             if(wait_duration.toSec() > 3.0 && allowFineEstimateUpdate){
@@ -669,11 +673,13 @@ public:
                         else
                         {
                             _logWithState("Gripper grasp failed.");
-                            currentState = State::Error;
+                            ROS_ERROR_NAMED("vader_hri", "Falling back to Home Poses and trying again...");
+                            currentState = State::HomeGripper;
                         }
                     }
                     else
                     {
+                        //Call to planner itself failed (not that planner failed). Something with ROS is wrong. We should never see this
                         _publishResultStatus(srv.response.success, "Failed to gripper grasp.");
                         _logWithState("Failed to call planning service for gripper grasp.");
                         currentState = State::Error;
@@ -696,11 +702,13 @@ public:
                         else
                         {
                             _logWithState("Cutter grasp failed.");
-                            currentState = State::Error;
+                            ROS_ERROR_NAMED("vader_hri", "Falling back to Home Poses and trying again...");
+                            currentState = State::HomeGripper;
                         }
                     }
                     else
                     {
+                        //Call to planner itself failed (not that planner failed). Something with ROS is wrong. We should never see this
                         _publishResultStatus(srv.response.success, "Failed to cutter grasp.");
                         _logWithState("Failed to call planning service for cutter grasp.");
                         currentState = State::Error;
@@ -749,7 +757,8 @@ public:
                         else
                         {
                             _logWithState("Parallel move to storage failed.");
-                            currentState = State::Error;
+                            ROS_ERROR_NAMED("vader_hri", "Moving to storage failed!! Continuing to move home but pepper may have been lost.");
+                            currentState = State::HomeGripper2;
                         }
                     }
                     else
@@ -789,7 +798,6 @@ public:
                 
                 case State::Done:
                 {
-                    // ROS_INFO("Done");
                     _publishResultStatus(vader_msgs::HarvestResult::RESULT_SUCCESS, "Success!");
                     num_peppers_harvested += 1;
                     coarseEstimate = nullptr;
