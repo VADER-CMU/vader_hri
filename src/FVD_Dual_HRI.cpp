@@ -30,7 +30,7 @@ static void fineEstimateCallback(const vader_msgs::PepperArray::ConstPtr &msg);
 
 namespace rvt = rviz_visual_tools;
 
-const double REJECT_FINE_POSE_BEYOND_ANGLE_DEGREES = 30;
+const double REJECT_FINE_POSE_BEYOND_ANGLE_DEGREES = 20;
 const bool SKIP_WORKSPACE_BOUNDS_CHECK = false;
 
 class VADERStateMachine
@@ -239,7 +239,7 @@ private:
         if (SKIP_WORKSPACE_BOUNDS_CHECK){
             return true;
         }
-        double x_min = 0.7;
+        double x_min = 0.82;
         double x_max = 1.05;
         double y_min = 0;
         double y_max = 0.5;
@@ -517,14 +517,16 @@ public:
                         else
                         {
                             _logWithState("Gripper homing failed.");
-                            currentState = State::Error;
+                            ROS_ERROR_NAMED("vader_hri", "Trying homing again...");
+                            currentState = State::HomeGripper;
                         }
                     }
                     else
                     {
                         _publishResultStatus(srv.response.success, "Failed to home gripper.");
                         _logWithState("Failed to call planning service for gripper homing.");
-                        currentState = State::Error;
+                        ROS_ERROR_NAMED("vader_hri", "Trying homing again...");
+                        currentState = State::HomeGripper;
                     }
                     break;
                 }
@@ -543,14 +545,16 @@ public:
                         else
                         {
                             _logWithState("Cutter homing failed.");
-                            currentState = State::Error;
+                            ROS_ERROR_NAMED("vader_hri", "Trying homing again...");
+                            currentState = State::HomeCutter;
                         }
                     }
                     else
                     {
                         _publishResultStatus(srv.response.success, "Failed to home cutter.");
                         _logWithState("Failed to call planning service for cutter homing.");
-                        currentState = State::Error;
+                        ROS_ERROR_NAMED("vader_hri", "Trying homing again...");
+                        currentState = State::HomeCutter;
                     }
                     break;
                 }
@@ -612,7 +616,8 @@ public:
                         //Call to planner itself failed (not that planner failed). Something with ROS is wrong. We should never see this
                         _publishResultStatus(srv.response.success, "Failed to move to pregrasp.");
                         _logWithState("Failed to call planning service for parallel move to pregrasp.");
-                        currentState = State::Error;
+                        ROS_ERROR_NAMED("vader_hri", "Falling back to Home Poses and trying again...");
+                        currentState = State::HomeGripper;
                     }
                     break;
                 }
@@ -681,8 +686,8 @@ public:
                     {
                         //Call to planner itself failed (not that planner failed). Something with ROS is wrong. We should never see this
                         _publishResultStatus(srv.response.success, "Failed to gripper grasp.");
-                        _logWithState("Failed to call planning service for gripper grasp.");
-                        currentState = State::Error;
+                        ROS_ERROR_NAMED("vader_hri", "Falling back to Home Poses and trying again...");
+                        currentState = State::HomeGripper;
                     }
                     break;
                 }
@@ -710,8 +715,8 @@ public:
                     {
                         //Call to planner itself failed (not that planner failed). Something with ROS is wrong. We should never see this
                         _publishResultStatus(srv.response.success, "Failed to cutter grasp.");
-                        _logWithState("Failed to call planning service for cutter grasp.");
-                        currentState = State::Error;
+                        ROS_ERROR_NAMED("vader_hri", "Falling back to Home Poses and trying again...");
+                        currentState = State::HomeGripper;
                     }
                     break;
                 }
@@ -722,7 +727,7 @@ public:
                     ros::Duration(3.0).sleep();
                     // _sendGripperCommand(100);
                     // ros::Duration(1.0).sleep();
-                    currentState = State::ParallelMoveStorage;
+                    currentState = State::CutterEndEffector;
                     break;
                 }
                 case State::CutterEndEffector:
