@@ -279,7 +279,9 @@ private:
         double z_center = 0.45;  // (0.3 + 0.6) / 2
 
         double min_distance = std::numeric_limits<double>::max();
-        int best_index = -1;
+        double highest_z_center = 0.0;
+        int highest_z_index = -1;
+        int centermost_index = -1;
 
         for (size_t i = 0; i < peppers.size(); i++)
         {
@@ -295,9 +297,16 @@ private:
             if (distance < min_distance)
             {
                 min_distance = distance;
-                best_index = i;
+                centermost_index = i;
+            }
+            if (peppers[i].fruit_data.pose.position.z > highest_z_center)
+            {
+                highest_z_center = peppers[i].fruit_data.pose.position.z;
+                highest_z_index = i;
             }
         }
+
+        int best_index = highest_z_index; //pick the highest pepper
 
         if (best_index != -1)
         {

@@ -53,9 +53,9 @@ class SimulationDirector:
             #Test the tests
             # self.process = subprocess.Popen(['rosrun', 'vader_hri', 'dummy_sim.py'])
 
-            pepper_x = 1 #m
-            pepper_y = 0.15 #round(random.uniform(0, 0.5), 2) #m 
-            pepper_z = round(random.uniform(0.2, 0.6), 2) #m
+            pepper_x = round(random.uniform(0.82, 1.05), 2) #m
+            pepper_y = round(random.uniform(0, 0.5), 2) #m 
+            pepper_z = round(random.uniform(0.3, 0.6), 2) #m
             pepper_r = round(random.uniform(-0.2, 0.2), 2) #0.1 #rad
             pepper_p = round(random.uniform(-0.2, 0.2), 2) #0.0 #rad
             run = SimulationRun(
