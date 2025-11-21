@@ -243,7 +243,7 @@ private:
         double y_min = 0;
         double y_max = 0.5;
         double z_min = 0.2;
-        double z_max = 0.6;
+        double z_max = 0.7;
 
         bool result = true;
 
@@ -367,28 +367,28 @@ public:
 
     void setGripperCoarsePE(const vader_msgs::PepperArray::ConstPtr &msg)
     {
-        if (!allowCoarseEstimateUpdate)
-        {
-            return;
-        }
-        coarseEstimates.clear();
-        visual_tools->deleteAllMarkers();
-        ROS_INFO_STREAM("===Received " << msg->peppers.size() << " GRIPPER coarse pepper estimates.===");
-        for (const vader_msgs::Pepper pepper_msg : msg->peppers)
-        {
-            vader_msgs::Pepper transformed_pepper;
-            _transformFromCameraFrameIntoRobotFrame(pepper_msg, &transformed_pepper);
-            transformed_pepper.fruit_data.pose.orientation.x = 0;
-            transformed_pepper.fruit_data.pose.orientation.y = 0;
-            transformed_pepper.fruit_data.pose.orientation.z = 0;
-            transformed_pepper.fruit_data.pose.orientation.w = 1;
-            coarseEstimates.push_back(transformed_pepper);
+        // if (!allowCoarseEstimateUpdate)
+        // {
+        //     return;
+        // }
+        // coarseEstimates.clear();
+        // visual_tools->deleteAllMarkers();
+        // ROS_INFO_STREAM("===Received " << msg->peppers.size() << " GRIPPER coarse pepper estimates.===");
+        // for (const vader_msgs::Pepper pepper_msg : msg->peppers)
+        // {
+        //     vader_msgs::Pepper transformed_pepper;
+        //     _transformFromCameraFrameIntoRobotFrame(pepper_msg, &transformed_pepper);
+        //     transformed_pepper.fruit_data.pose.orientation.x = 0;
+        //     transformed_pepper.fruit_data.pose.orientation.y = 0;
+        //     transformed_pepper.fruit_data.pose.orientation.z = 0;
+        //     transformed_pepper.fruit_data.pose.orientation.w = 1;
+        //     coarseEstimates.push_back(transformed_pepper);
 
-            _logWithState("Transformed GRIPPER coarse pose: x=" + std::to_string(transformed_pepper.fruit_data.pose.position.x) +
-                          ", y=" + std::to_string(transformed_pepper.fruit_data.pose.position.y) +
-                          ", z=" + std::to_string(transformed_pepper.fruit_data.pose.position.z));
-        }
-        _prioritizeCoarseEstimatePepper(coarseEstimates);
+        //     _logWithState("Transformed GRIPPER coarse pose: x=" + std::to_string(transformed_pepper.fruit_data.pose.position.x) +
+        //                   ", y=" + std::to_string(transformed_pepper.fruit_data.pose.position.y) +
+        //                   ", z=" + std::to_string(transformed_pepper.fruit_data.pose.position.z));
+        // }
+        // _prioritizeCoarseEstimatePepper(coarseEstimates);
 
         // if(coarseEstimate){
         // _transformFromCameraFrameIntoRobotFrame(msg, fineEstimate);
@@ -485,6 +485,8 @@ public:
         {
             return;
         }
+        coarseEstimates.clear();
+        visual_tools->deleteAllMarkers();
         ROS_INFO_STREAM("===Received " << msg->peppers.size() << " CUTTER coarse pepper estimates.===");
         for (const vader_msgs::Pepper pepper_msg : msg->peppers)
         {
@@ -494,11 +496,15 @@ public:
             transformed_pepper.fruit_data.pose.orientation.y = 0;
             transformed_pepper.fruit_data.pose.orientation.z = 0;
             transformed_pepper.fruit_data.pose.orientation.w = 1;
+            transformed_pepper.fruit_data.pose.position.x += 0.02;
+            transformed_pepper.fruit_data.pose.position.z -= 0.05;
+            
             coarseEstimates.push_back(transformed_pepper);
             _logWithState("Transformed CUTTER coarse pose: x=" + std::to_string(transformed_pepper.fruit_data.pose.position.x) +
                           ", y=" + std::to_string(transformed_pepper.fruit_data.pose.position.y) +
                           ", z=" + std::to_string(transformed_pepper.fruit_data.pose.position.z));
         }
+        _prioritizeCoarseEstimatePepper(coarseEstimates);
     }
 
     vader_msgs::Pepper setGripperFinePEWithCoarsePoseEst(const vader_msgs::Pepper &coarseEstimate){
