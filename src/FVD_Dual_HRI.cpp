@@ -25,8 +25,9 @@
 #include <moveit_visual_tools/moveit_visual_tools.h>
 
 
-static void coarseEstimateCallback(const vader_msgs::PepperArray::ConstPtr &msg);
-static void fineEstimateCallback(const vader_msgs::PepperArray::ConstPtr &msg);
+static void gripperCoarseEstCallback(const vader_msgs::PepperArray::ConstPtr &msg);
+static void gripperFineEstCallback(const vader_msgs::PepperArray::ConstPtr &msg);
+static void cutterCoarseEstCallback(const vader_msgs::PepperArray::ConstPtr &msg);
 
 namespace rvt = rviz_visual_tools;
 
@@ -62,7 +63,7 @@ private:
     ros::NodeHandle n;
 
     // Perception subscriptions and data
-    ros::Subscriber coarseEstimateSub, fineEstimateSub;
+    ros::Subscriber gripperCoarseEstSub, gripperFineEstSub, cutterCoarseEstSub;
     std::vector<vader_msgs::Pepper> coarseEstimates;
     std::vector<vader_msgs::Pepper> fineEstimates;
     vader_msgs::Pepper *coarseEstimate;
@@ -229,8 +230,6 @@ private:
         resultMsg.result = result_code;
         resultMsg.reason = reason;
         resultStatusPub.publish(resultMsg);
-        ros::Duration(1.0).sleep();
-        resultStatusPub.publish(resultMsg);
         ROS_WARN_STREAM("Published harvest result: " << result_code << ", reason: " << reason);
     }
 
@@ -334,9 +333,12 @@ public:
     VADERStateMachine() : currentState(State::HomeGripper)
     {
         coarseEstimate = nullptr;
-        coarseEstimateSub = n.subscribe("/gripper_coarse_pepper_array", 10, coarseEstimateCallback);
+        gripperCoarseEstSub = n.subscribe("/gripper_coarse_pepper_array", 10, gripperCoarseEstCallback);
         fineEstimate = nullptr;
-        fineEstimateSub = n.subscribe("/gripper_fine_pepper_array", 10, fineEstimateCallback);
+        gripperFineEstSub = n.subscribe("/gripper_fine_pepper_array", 10, gripperFineEstCallback);
+
+        cutterCoarseEstSub = n.subscribe("/cutter_coarse_pepper_array", 10, cutterCoarseEstCallback);
+
 
         planClient = n.serviceClient<vader_msgs::PlanningRequest>("vader_planning_service");
 
@@ -359,11 +361,11 @@ public:
     //     msg->peduncle_data.shape.dimensions.resize(2);
     //     msg->peduncle_data.shape.dimensions[0] = 0.02;
     //     msg->peduncle_data.shape.dimensions[1] = 0.002;
-    //     setCoarsePoseEstimate(msg);
-    //     setFinePoseEstimate(msg);
+    //     setGripperCoarsePE(msg);
+    //     setGripperFinePE(msg);
     // }
 
-    void setCoarsePoseEstimate(const vader_msgs::PepperArray::ConstPtr &msg)
+    void setGripperCoarsePE(const vader_msgs::PepperArray::ConstPtr &msg)
     {
         if (!allowCoarseEstimateUpdate)
         {
@@ -371,7 +373,7 @@ public:
         }
         coarseEstimates.clear();
         visual_tools->deleteAllMarkers();
-        // ROS_INFO_STREAM("Received " << msg->peppers.size() << " coarse pepper estimates.");
+        ROS_INFO_STREAM("===Received " << msg->peppers.size() << " GRIPPER coarse pepper estimates.===");
         for (const vader_msgs::Pepper pepper_msg : msg->peppers)
         {
             vader_msgs::Pepper transformed_pepper;
@@ -381,7 +383,10 @@ public:
             transformed_pepper.fruit_data.pose.orientation.z = 0;
             transformed_pepper.fruit_data.pose.orientation.w = 1;
             coarseEstimates.push_back(transformed_pepper);
-            
+
+            _logWithState("Transformed GRIPPER coarse pose: x=" + std::to_string(transformed_pepper.fruit_data.pose.position.x) +
+                          ", y=" + std::to_string(transformed_pepper.fruit_data.pose.position.y) +
+                          ", z=" + std::to_string(transformed_pepper.fruit_data.pose.position.z));
         }
         _prioritizeCoarseEstimatePepper(coarseEstimates);
 
@@ -405,7 +410,7 @@ public:
         // }
     }
 
-    void setFinePoseEstimate(const vader_msgs::PepperArray::ConstPtr &msg)
+    void setGripperFinePE(const vader_msgs::PepperArray::ConstPtr &msg)
     {
         if (!allowFineEstimateUpdate)
         {
@@ -475,7 +480,28 @@ public:
         }
     }
 
-    vader_msgs::Pepper setFinePoseEstimateWithCoarsePoseEst(const vader_msgs::Pepper &coarseEstimate){
+    void setCutterCoarsePE(const vader_msgs::PepperArray::ConstPtr &msg){
+        if (!allowCoarseEstimateUpdate)
+        {
+            return;
+        }
+        ROS_INFO_STREAM("===Received " << msg->peppers.size() << " CUTTER coarse pepper estimates.===");
+        for (const vader_msgs::Pepper pepper_msg : msg->peppers)
+        {
+            vader_msgs::Pepper transformed_pepper;
+            _transformFromCameraFrameIntoRobotFrame(pepper_msg, &transformed_pepper);
+            transformed_pepper.fruit_data.pose.orientation.x = 0;
+            transformed_pepper.fruit_data.pose.orientation.y = 0;
+            transformed_pepper.fruit_data.pose.orientation.z = 0;
+            transformed_pepper.fruit_data.pose.orientation.w = 1;
+            coarseEstimates.push_back(transformed_pepper);
+            _logWithState("Transformed CUTTER coarse pose: x=" + std::to_string(transformed_pepper.fruit_data.pose.position.x) +
+                          ", y=" + std::to_string(transformed_pepper.fruit_data.pose.position.y) +
+                          ", z=" + std::to_string(transformed_pepper.fruit_data.pose.position.z));
+        }
+    }
+
+    vader_msgs::Pepper setGripperFinePEWithCoarsePoseEst(const vader_msgs::Pepper &coarseEstimate){
         vader_msgs::Pepper fakeFineEstimate = (coarseEstimate);
         fakeFineEstimate.header.frame_id = "world";
         fakeFineEstimate.fruit_data.pose.orientation.x = 0;
@@ -498,7 +524,6 @@ public:
         int max_peppers_to_harvest = 99;
         std::vector<double> harvest_times_sec;
 
-        //Start time of each harvest
         ros::Time harvest_start_time;
 
         ros::Time printCoarsePoseWaitingMsgTime = ros::Time(0);
@@ -654,11 +679,11 @@ public:
                             ros::Duration wait_duration = ros::Time::now() - waitForFinePoseStartTime;
                             if(wait_duration.toSec() > 3.0 && allowFineEstimateUpdate){
                                 ROS_WARN("Timeout waiting for fine pose estimate. Proceeding with coarse estimate.");
-                                vader_msgs::Pepper fakeFineEstimate = setFinePoseEstimateWithCoarsePoseEst(*coarseEstimate);
+                                vader_msgs::Pepper fakeFineEstimate = setGripperFinePEWithCoarsePoseEst(*coarseEstimate);
                                 fineEstimate = new vader_msgs::Pepper(fakeFineEstimate);
                                 allowFineEstimateUpdate = false;
                                 
-                                // *fineEstimate = setFinePoseEstimateWithCoarsePoseEst(*coarseEstimate);
+                                // *fineEstimate = setGripperFinePEWithCoarsePoseEst(*coarseEstimate);
                             }
                         }
                     }
@@ -854,12 +879,12 @@ public:
 
 VADERStateMachine *sm = nullptr;
 
-static void coarseEstimateCallback(const vader_msgs::PepperArray::ConstPtr &msg)
+static void gripperCoarseEstCallback(const vader_msgs::PepperArray::ConstPtr &msg)
 {
     // ROS_INFO("Coarse estimate callback triggered");
     if (sm != nullptr)
     {
-        sm->setCoarsePoseEstimate(msg);
+        sm->setGripperCoarsePE(msg);
     }
     else
     {
@@ -867,17 +892,32 @@ static void coarseEstimateCallback(const vader_msgs::PepperArray::ConstPtr &msg)
     }
 }
 
-static void fineEstimateCallback(const vader_msgs::PepperArray::ConstPtr &msg)
+static void gripperFineEstCallback(const vader_msgs::PepperArray::ConstPtr &msg)
 {
     if (sm != nullptr)
     {
-        sm->setFinePoseEstimate(msg);
+        sm->setGripperFinePE(msg);
     }
     else
     {
         ROS_ERROR("State machine is not initialized");
     }
 }
+
+
+static void cutterCoarseEstCallback(const vader_msgs::PepperArray::ConstPtr &msg)
+{
+    // ROS_INFO("Coarse estimate callback triggered");
+    if (sm != nullptr)
+    {
+        sm->setCutterCoarsePE(msg);
+    }
+    else
+    {
+        ROS_ERROR("State machine is not initialized");
+    }
+}
+
 
 int main(int argc, char **argv)
 {
