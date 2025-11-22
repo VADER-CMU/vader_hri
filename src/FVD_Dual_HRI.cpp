@@ -5,9 +5,6 @@
 #include "vader_msgs/Pepper.h"
 
 #include "vader_msgs/PepperArray.h"
-// #include "vader_msgs/BimanualPlanRequest.h"
-// #include "vader_msgs/BimanualExecRequest.h"
-// #include "vader_msgs/MoveToStorageRequest.h"
 #include "vader_msgs/GripperCommand.h"
 #include "vader_msgs/CutterCommand.h"
 
@@ -31,8 +28,15 @@ static void cutterCoarseEstCallback(const vader_msgs::PepperArray::ConstPtr &msg
 
 namespace rvt = rviz_visual_tools;
 
-const double REJECT_FINE_POSE_BEYOND_ANGLE_DEGREES = 20;
+const double REJECT_FINE_POSE_BEYOND_ANGLE_DEGREES = 10;
 const bool SKIP_WORKSPACE_BOUNDS_CHECK = false;
+
+enum class EstimateSource
+{
+    NONE,
+    CUTTER,
+    GRIPPER
+};
 
 class VADERStateMachine
 {
@@ -51,7 +55,7 @@ private:
         // ------------Harvest stage-----------
         CutterGrasp,
         CutterEndEffector,
-    // -----------Finish and cleanup-----------
+        // -----------Finish and cleanup-----------
         ParallelMoveStorage,
         HomeGripper2,
         Done,
@@ -64,10 +68,9 @@ private:
 
     // Perception subscriptions and data
     ros::Subscriber gripperCoarseEstSub, gripperFineEstSub, cutterCoarseEstSub;
-    std::vector<vader_msgs::Pepper> coarseEstimates;
-    std::vector<vader_msgs::Pepper> fineEstimates;
     vader_msgs::Pepper *coarseEstimate;
     vader_msgs::Pepper *fineEstimate;
+    EstimateSource coarsePepperEstimateSource = EstimateSource::NONE;
 
     bool allowCoarseEstimateUpdate = true, allowFineEstimateUpdate = true;
 
@@ -367,28 +370,35 @@ public:
 
     void setGripperCoarsePE(const vader_msgs::PepperArray::ConstPtr &msg)
     {
-        // if (!allowCoarseEstimateUpdate)
-        // {
-        //     return;
-        // }
-        // coarseEstimates.clear();
-        // visual_tools->deleteAllMarkers();
-        // ROS_INFO_STREAM("===Received " << msg->peppers.size() << " GRIPPER coarse pepper estimates.===");
-        // for (const vader_msgs::Pepper pepper_msg : msg->peppers)
-        // {
-        //     vader_msgs::Pepper transformed_pepper;
-        //     _transformFromCameraFrameIntoRobotFrame(pepper_msg, &transformed_pepper);
-        //     transformed_pepper.fruit_data.pose.orientation.x = 0;
-        //     transformed_pepper.fruit_data.pose.orientation.y = 0;
-        //     transformed_pepper.fruit_data.pose.orientation.z = 0;
-        //     transformed_pepper.fruit_data.pose.orientation.w = 1;
-        //     coarseEstimates.push_back(transformed_pepper);
+        if (!allowCoarseEstimateUpdate)
+        {
+            return;
+        }
+        if (coarseEstimate && coarsePepperEstimateSource != EstimateSource::NONE){
+            return;
+        }
+        std::vector<vader_msgs::Pepper> coarseEstimates;
 
-        //     _logWithState("Transformed GRIPPER coarse pose: x=" + std::to_string(transformed_pepper.fruit_data.pose.position.x) +
-        //                   ", y=" + std::to_string(transformed_pepper.fruit_data.pose.position.y) +
-        //                   ", z=" + std::to_string(transformed_pepper.fruit_data.pose.position.z));
-        // }
-        // _prioritizeCoarseEstimatePepper(coarseEstimates);
+        visual_tools->deleteAllMarkers();
+        // ROS_INFO_STREAM("===Received " << msg->peppers.size() << " GRIPPER coarse pepper estimates.===");
+        for (const vader_msgs::Pepper pepper_msg : msg->peppers)
+        {
+            vader_msgs::Pepper transformed_pepper;
+            _transformFromCameraFrameIntoRobotFrame(pepper_msg, &transformed_pepper);
+            transformed_pepper.fruit_data.pose.orientation.x = 0;
+            transformed_pepper.fruit_data.pose.orientation.y = 0;
+            transformed_pepper.fruit_data.pose.orientation.z = 0;
+            transformed_pepper.fruit_data.pose.orientation.w = 1;
+            coarseEstimates.push_back(transformed_pepper);
+
+            // _logWithState("Transformed GRIPPER coarse pose: x=" + std::to_string(transformed_pepper.fruit_data.pose.position.x) +
+            //               ", y=" + std::to_string(transformed_pepper.fruit_data.pose.position.y) +
+            //               ", z=" + std::to_string(transformed_pepper.fruit_data.pose.position.z));
+        }
+        _prioritizeCoarseEstimatePepper(coarseEstimates);
+        if(coarseEstimate){
+            coarsePepperEstimateSource = EstimateSource::GRIPPER;
+        }
 
         // if(coarseEstimate){
         // _transformFromCameraFrameIntoRobotFrame(msg, fineEstimate);
@@ -416,7 +426,7 @@ public:
         {
             return;
         }
-        fineEstimates.clear();
+        std::vector<vader_msgs::Pepper> fineEstimates;
         // ROS_INFO_STREAM("Received " << msg->peppers.size() << " fine pepper estimates.");
         for (const vader_msgs::Pepper pepper_msg : msg->peppers)
         {
@@ -434,48 +444,56 @@ public:
 
         if (!fineEstimates.empty() && coarseEstimate != nullptr)
         {
-            // Take the first valid fine estimate
-            for (const auto& pepper : fineEstimates)
-            {
+            double bestDist = 9999;
+            int bestIdx = -1;
+            for (int i = 0; i < fineEstimates.size(); ++i){
+                auto& pepper = fineEstimates[i];
                 double distToCoarseEstimate = sqrt(
                     pow(pepper.fruit_data.pose.position.x - coarseEstimate->fruit_data.pose.position.x, 2) +
                     pow(pepper.fruit_data.pose.position.y - coarseEstimate->fruit_data.pose.position.y, 2) +
                     pow(pepper.fruit_data.pose.position.z - coarseEstimate->fruit_data.pose.position.z, 2));
-                if (_pepperReachable(pepper) && distToCoarseEstimate < 0.1)
-                {
-                    fineEstimate = new vader_msgs::Pepper(pepper);
-                
-                    // compute rotation angle from quaternion relative to identity
-                    const auto &q = fineEstimate->fruit_data.pose.orientation;
-                    double qw = q.w;
-                    double angle_rad = 2.0 * acos(fabs(qw));
-                    double angle_deg = angle_rad * 180.0 / M_PI;
-                    // ROS_INFO_STREAM("Fine estimate rotation magnitude: " << angle_deg << " degrees");
-                    if (angle_deg > REJECT_FINE_POSE_BEYOND_ANGLE_DEGREES && angle_deg < (180.0 - REJECT_FINE_POSE_BEYOND_ANGLE_DEGREES)) {
-                        fineEstimate->fruit_data.pose.orientation.x = 0.0;
-                        fineEstimate->fruit_data.pose.orientation.y = 0.0;
-                        fineEstimate->fruit_data.pose.orientation.z = 0.0;
-                        fineEstimate->fruit_data.pose.orientation.w = 1.0;
-                        
-                        fineEstimate->peduncle_data.pose.position.x = fineEstimate->fruit_data.pose.position.x;
-                        fineEstimate->peduncle_data.pose.position.y = fineEstimate->fruit_data.pose.position.y;
-                        fineEstimate->peduncle_data.pose.position.z = fineEstimate->fruit_data.pose.position.z + 0.035;
-                        fineEstimate->peduncle_data.pose.orientation.x = 0.0;
-                        fineEstimate->peduncle_data.pose.orientation.y = 0.0;
-                        fineEstimate->peduncle_data.pose.orientation.z = 0.0;
-                        fineEstimate->peduncle_data.pose.orientation.w = 1.0;
-                        ROS_WARN_STREAM("Rotation > " << REJECT_FINE_POSE_BEYOND_ANGLE_DEGREES << " deg; resetting fine estimate fruit orientation to identity");
-                    }
-                
-                    // ROS_INFO_STREAM("Selected fine estimate: x=" << fineEstimate->fruit_data.pose.position.x
-                    //             << ", y=" << fineEstimate->fruit_data.pose.position.y
-                    //             << ", z=" << fineEstimate->fruit_data.pose.position.z
-                    //             << ", quat=(" << fineEstimate->fruit_data.pose.orientation.x << ", "
-                    //             << fineEstimate->fruit_data.pose.orientation.y << ", "
-                    //             << fineEstimate->fruit_data.pose.orientation.z << ", "
-                    //             << fineEstimate->fruit_data.pose.orientation.w << ")");
-                    break;
+                ROS_INFO_STREAM("Fine estimate dist to coarse estimate: " << distToCoarseEstimate << "\n");
+                if(distToCoarseEstimate < bestDist){
+                    bestDist = distToCoarseEstimate;
+                    bestIdx = i;
                 }
+            }
+
+            auto& fineEstimatePepper = fineEstimates[bestIdx];
+        
+            if (_pepperReachable(fineEstimatePepper) && bestDist < 0.1)
+            {
+                fineEstimate = new vader_msgs::Pepper(fineEstimatePepper);
+            
+                // compute rotation angle from quaternion relative to identity
+                const auto &q = fineEstimate->fruit_data.pose.orientation;
+                double qw = q.w;
+                double angle_rad = 2.0 * acos(fabs(qw));
+                double angle_deg = angle_rad * 180.0 / M_PI;
+                // ROS_INFO_STREAM("Fine estimate rotation magnitude: " << angle_deg << " degrees");
+                if (angle_deg > REJECT_FINE_POSE_BEYOND_ANGLE_DEGREES && angle_deg < (180.0 - REJECT_FINE_POSE_BEYOND_ANGLE_DEGREES)) {
+                    fineEstimate->fruit_data.pose.orientation.x = 0.0;
+                    fineEstimate->fruit_data.pose.orientation.y = 0.0;
+                    fineEstimate->fruit_data.pose.orientation.z = 0.0;
+                    fineEstimate->fruit_data.pose.orientation.w = 1.0;
+                    
+                    fineEstimate->peduncle_data.pose.position.x = fineEstimate->fruit_data.pose.position.x;
+                    fineEstimate->peduncle_data.pose.position.y = fineEstimate->fruit_data.pose.position.y;
+                    fineEstimate->peduncle_data.pose.position.z = fineEstimate->fruit_data.pose.position.z + 0.035;
+                    fineEstimate->peduncle_data.pose.orientation.x = 0.0;
+                    fineEstimate->peduncle_data.pose.orientation.y = 0.0;
+                    fineEstimate->peduncle_data.pose.orientation.z = 0.0;
+                    fineEstimate->peduncle_data.pose.orientation.w = 1.0;
+                    ROS_WARN_STREAM("Rotation > " << REJECT_FINE_POSE_BEYOND_ANGLE_DEGREES << " deg; resetting fine estimate fruit orientation to identity");
+                }
+            
+                // ROS_INFO_STREAM("Selected fine estimate: x=" << fineEstimate->fruit_data.pose.position.x
+                //             << ", y=" << fineEstimate->fruit_data.pose.position.y
+                //             << ", z=" << fineEstimate->fruit_data.pose.position.z
+                //             << ", quat=(" << fineEstimate->fruit_data.pose.orientation.x << ", "
+                //             << fineEstimate->fruit_data.pose.orientation.y << ", "
+                //             << fineEstimate->fruit_data.pose.orientation.z << ", "
+                //             << fineEstimate->fruit_data.pose.orientation.w << ")");
             }
         }
     }
@@ -485,9 +503,10 @@ public:
         {
             return;
         }
-        coarseEstimates.clear();
+
+        std::vector<vader_msgs::Pepper> coarseEstimates;
         visual_tools->deleteAllMarkers();
-        ROS_INFO_STREAM("===Received " << msg->peppers.size() << " CUTTER coarse pepper estimates.===");
+        // ROS_INFO_STREAM("===Received " << msg->peppers.size() << " CUTTER coarse pepper estimates.===");
         for (const vader_msgs::Pepper pepper_msg : msg->peppers)
         {
             vader_msgs::Pepper transformed_pepper;
@@ -500,11 +519,14 @@ public:
             transformed_pepper.fruit_data.pose.position.z -= 0.05;
             
             coarseEstimates.push_back(transformed_pepper);
-            _logWithState("Transformed CUTTER coarse pose: x=" + std::to_string(transformed_pepper.fruit_data.pose.position.x) +
-                          ", y=" + std::to_string(transformed_pepper.fruit_data.pose.position.y) +
-                          ", z=" + std::to_string(transformed_pepper.fruit_data.pose.position.z));
+            // _logWithState("Transformed CUTTER coarse pose: x=" + std::to_string(transformed_pepper.fruit_data.pose.position.x) +
+            //               ", y=" + std::to_string(transformed_pepper.fruit_data.pose.position.y) +
+            //               ", z=" + std::to_string(transformed_pepper.fruit_data.pose.position.z));
         }
         _prioritizeCoarseEstimatePepper(coarseEstimates);
+        if(coarseEstimate){
+            coarsePepperEstimateSource = EstimateSource::CUTTER;
+        }
     }
 
     vader_msgs::Pepper setGripperFinePEWithCoarsePoseEst(const vader_msgs::Pepper &coarseEstimate){
@@ -542,7 +564,6 @@ public:
                 case State::HomeGripper:{
                     harvest_start_time = ros::Time::now();
                     allowCoarseEstimateUpdate = true;
-                    allowFineEstimateUpdate = true;
                     _logWithState("Homing gripper...");
                     _sendGripperCommand(100);
                     vader_msgs::PlanningRequest srv;
@@ -606,6 +627,7 @@ public:
                     if (coarseEstimate != nullptr)
                     {
                         _logWithState("Coarse estimate received, switching states");
+                        ROS_INFO_STREAM("Estimate Source: " << (coarsePepperEstimateSource == EstimateSource::CUTTER ? "Cutter" : "Gripper"));
                         _logWithState("Transformed pose: x=" + std::to_string(coarseEstimate->fruit_data.pose.position.x) +
                                       ", y=" + std::to_string(coarseEstimate->fruit_data.pose.position.y) +
                                       ", z=" + std::to_string(coarseEstimate->fruit_data.pose.position.z) + 
@@ -622,15 +644,16 @@ public:
                         if((ros::Time::now() - printCoarsePoseWaitingMsgTime).toSec() > 3.0){
                             printCoarsePoseWaitingMsgTime = ros::Time::now();
                             _logWithState("Still waiting for coarse estimate");
-                            if(!coarseEstimates.empty()){
-                                ROS_INFO_STREAM("NOTE: " << coarseEstimates.size() << " coarse estimates found but outside of workspace bounds.");
-                            }
+                            // if(!coarseEstimates.empty()){
+                            //     ROS_INFO_STREAM("NOTE: " << coarseEstimates.size() << " coarse estimates found but outside of workspace bounds.");
+                            // }
                         }
                     }
                     break;
                 }
                 case State::ParallelMovePregrasp:{
                     allowCoarseEstimateUpdate = false;
+                    allowFineEstimateUpdate = true;
                     _logWithState("Planning parallel move to pregrasp...");
                     vader_msgs::PlanningRequest srv;
                     srv.request.mode = vader_msgs::PlanningRequest::Request::PARALLEL_MOVE_PREGRASP;
