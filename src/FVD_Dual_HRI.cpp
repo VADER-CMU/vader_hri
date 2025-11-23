@@ -28,7 +28,7 @@ static void cutterCoarseEstCallback(const vader_msgs::PepperArray::ConstPtr &msg
 
 namespace rvt = rviz_visual_tools;
 
-const double REJECT_FINE_POSE_BEYOND_ANGLE_DEGREES = 10;
+const double REJECT_FINE_POSE_BEYOND_ANGLE_DEGREES = 15;
 const bool SKIP_WORKSPACE_BOUNDS_CHECK = false;
 
 enum class EstimateSource
