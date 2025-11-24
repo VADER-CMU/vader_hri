@@ -461,7 +461,7 @@ public:
 
             auto& fineEstimatePepper = fineEstimates[bestIdx];
         
-            if (_pepperReachable(fineEstimatePepper) && bestDist < 0.1)
+            if (_pepperReachable(fineEstimatePepper) && bestDist < 0.05)
             {
                 fineEstimate = new vader_msgs::Pepper(fineEstimatePepper);
             
