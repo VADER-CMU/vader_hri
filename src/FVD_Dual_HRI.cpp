@@ -20,6 +20,119 @@
 #include <geometry_msgs/PoseStamped.h>
 
 #include <moveit_visual_tools/moveit_visual_tools.h>
+#include <chrono>
+#include <vector>
+#include <string>
+#include <fstream>
+#include <iomanip>
+
+
+
+class CSVTimer {
+public:
+    // Pair: <Label, Time in seconds>; "--" for failed unfinished
+    std::vector<std::pair<std::string, std::string> > splits;
+    std::chrono::high_resolution_clock::time_point loop_start;
+    bool started = false;
+
+    void startLoop() {
+        splits.clear();
+        loop_start = std::chrono::high_resolution_clock::now();
+        started = true;
+    }
+
+    void split(const std::string& label) {
+        if (!started) return;
+        std::chrono::high_resolution_clock::time_point now =
+            std::chrono::high_resolution_clock::now();
+        double elapsed =
+            std::chrono::duration<double>(now - loop_start).count();
+        splits.push_back(std::make_pair(label, std::to_string(elapsed)));
+        loop_start = now;
+    }
+
+    void finalize(const std::vector<std::string>& all_labels,
+                  bool failed,
+                  const std::string& filepath) {
+        if (failed) {
+            for (std::size_t i = 0; i < all_labels.size(); ++i) {
+                const std::string& label = all_labels[i];
+
+                // manual search for label in splits
+                std::vector<std::pair<std::string, std::string> >::iterator it =
+                    splits.end();
+                for (std::vector<std::pair<std::string, std::string> >::iterator s =
+                         splits.begin();
+                     s != splits.end(); ++s) {
+                    if (s->first == label) {
+                        it = s;
+                        break;
+                    }
+                }
+
+                if (it == splits.end()) {
+                    splits.push_back(std::make_pair(label, "--"));
+                }
+            }
+        }
+        writeCSV(all_labels, filepath, failed);
+        started = false;
+    }
+
+private:
+    void writeCSV(const std::vector<std::string>& all_labels,
+                  const std::string& filepath,
+                  bool failed) {
+        bool write_header = false;
+        std::ifstream infile(filepath.c_str());
+        if (!infile.good()) write_header = true;
+
+        std::ofstream file(filepath.c_str(), std::ios::app);
+        if (!file) {
+            return; // handle error as you prefer
+        }
+
+        if (write_header) {
+            file << "timestamp";
+            for (std::size_t i = 0; i < all_labels.size(); ++i) {
+                file << "," << all_labels[i];
+            }
+            file << ",failure\n";
+        }
+
+        std::time_t now =
+            std::chrono::system_clock::to_time_t(
+                std::chrono::system_clock::now());
+        file << std::put_time(std::localtime(&now), "%Y-%m-%d %H:%M:%S");
+
+        for (std::size_t i = 0; i < all_labels.size(); ++i) {
+            const std::string& label = all_labels[i];
+
+            // manual search for label in splits
+            std::vector<std::pair<std::string, std::string> >::iterator it =
+                splits.end();
+            for (std::vector<std::pair<std::string, std::string> >::iterator s =
+                     splits.begin();
+                 s != splits.end(); ++s) {
+                if (s->first == label) {
+                    it = s;
+                    break;
+                }
+            }
+
+            file << ",";
+            if (it != splits.end())
+                file << it->second;
+            else
+                file << "--";
+        }
+
+        file << (failed ? ",1\n" : ",0\n");
+        file.close();
+    }
+};
+
+
 
 
 static void gripperCoarseEstCallback(const vader_msgs::PepperArray::ConstPtr &msg);
@@ -30,6 +143,8 @@ namespace rvt = rviz_visual_tools;
 
 const double REJECT_FINE_POSE_BEYOND_ANGLE_DEGREES = 15;
 const bool SKIP_WORKSPACE_BOUNDS_CHECK = false;
+
+const std::string CSV_LOG_FILEPATH = "/home/docker_ws/run.csv";
 
 enum class EstimateSource
 {
@@ -65,6 +180,17 @@ private:
 
     State currentState;
     ros::NodeHandle n;
+
+    CSVTimer timer; //for time splits logging
+    const std::vector<std::string> TIMER_LABELS = {
+        "StartWaitingCoarseEstimate",
+        "StartMovingPregrasp",
+        "StartWaitingFineEstimate",
+        "StartMovingToGrasp",
+        "HarvestActionStart",
+        "StartMovingToStorage",
+        "CompletedHarvest"
+    };
 
     // Perception subscriptions and data
     ros::Subscriber gripperCoarseEstSub, gripperFineEstSub, cutterCoarseEstSub;
@@ -562,6 +688,7 @@ public:
             switch (currentState)
             {
                 case State::HomeGripper:{
+                    timer.startLoop();
                     harvest_start_time = ros::Time::now();
                     allowCoarseEstimateUpdate = true;
                     _logWithState("Homing gripper...");
@@ -580,6 +707,7 @@ public:
                             _logWithState("Gripper homing failed.");
                             ROS_ERROR_NAMED("vader_hri", "Trying homing again...");
                             currentState = State::HomeGripper;
+                            timer.finalize(TIMER_LABELS, true, CSV_LOG_FILEPATH);
                         }
                     }
                     else
@@ -588,6 +716,7 @@ public:
                         _logWithState("Failed to call planning service for gripper homing.");
                         ROS_ERROR_NAMED("vader_hri", "Trying homing again...");
                         currentState = State::HomeGripper;
+                        timer.finalize(TIMER_LABELS, true, CSV_LOG_FILEPATH);
                     }
                     break;
                 }
@@ -602,12 +731,14 @@ public:
                         {
                             _logWithState("Cutter homed successfully.");
                             currentState = State::WaitForCoarseEstimate;
+                            timer.split("StartWaitingCoarseEstimate");
                         }
                         else
                         {
                             _logWithState("Cutter homing failed.");
                             ROS_ERROR_NAMED("vader_hri", "Trying homing again...");
                             currentState = State::HomeCutter;
+                            timer.finalize(TIMER_LABELS, true, CSV_LOG_FILEPATH);
                         }
                     }
                     else
@@ -616,6 +747,7 @@ public:
                         _logWithState("Failed to call planning service for cutter homing.");
                         ROS_ERROR_NAMED("vader_hri", "Trying homing again...");
                         currentState = State::HomeCutter;
+                        timer.finalize(TIMER_LABELS, true, CSV_LOG_FILEPATH);
                     }
                     break;
                 }
@@ -638,6 +770,7 @@ public:
                         printCoarsePoseWaitingMsgTime = ros::Time(0);
                         visual_tools->deleteAllMarkers();
                         currentState = State::ParallelMovePregrasp;
+                        timer.split("StartMovingPregrasp");
                     }
                     else
                     {
@@ -665,6 +798,7 @@ public:
                         {
                             _logWithState("Parallel move to pregrasp successful.");
                             currentState = State::WaitForFineEstimate;
+                            timer.split("StartWaitingFineEstimate");
                             waitForFinePoseStartTime = ros::Time::now();
                         }
                         else
@@ -672,6 +806,7 @@ public:
                             _logWithState("Parallel move to pregrasp failed.");
                             ROS_ERROR_NAMED("vader_hri", "Falling back to Home Poses and trying again...");
                             currentState = State::HomeGripper;
+                            timer.finalize(TIMER_LABELS, true, CSV_LOG_FILEPATH);
                         }
                     }
                     else
@@ -681,6 +816,7 @@ public:
                         _logWithState("Failed to call planning service for parallel move to pregrasp.");
                         ROS_ERROR_NAMED("vader_hri", "Falling back to Home Poses and trying again...");
                         currentState = State::HomeGripper;
+                        timer.finalize(TIMER_LABELS, true, CSV_LOG_FILEPATH);
                     }
                     break;
                 }
@@ -699,6 +835,7 @@ public:
                         allowFineEstimateUpdate = false;
                         waitForFinePoseStartTime = ros::Time(0);
                         currentState = State::GripperGrasp;
+                        timer.split("StartMovingToGrasp");
                         visual_tools->deleteAllMarkers();
                         visualizePepper(*fineEstimate);
                     }
@@ -743,6 +880,7 @@ public:
                             _logWithState("Gripper grasp failed.");
                             ROS_ERROR_NAMED("vader_hri", "Falling back to Home Poses and trying again...");
                             currentState = State::HomeGripper;
+                            timer.finalize(TIMER_LABELS, true, CSV_LOG_FILEPATH);
                         }
                     }
                     else
@@ -751,6 +889,7 @@ public:
                         _publishResultStatus(srv.response.success, "Failed to gripper grasp.");
                         ROS_ERROR_NAMED("vader_hri", "Falling back to Home Poses and trying again...");
                         currentState = State::HomeGripper;
+                        timer.finalize(TIMER_LABELS, true, CSV_LOG_FILEPATH);
                     }
                     break;
                 }
@@ -772,6 +911,7 @@ public:
                             _logWithState("Cutter grasp failed.");
                             ROS_ERROR_NAMED("vader_hri", "Falling back to Home Poses and trying again...");
                             currentState = State::HomeGripper;
+                            timer.finalize(TIMER_LABELS, true, CSV_LOG_FILEPATH);
                         }
                     }
                     else
@@ -780,11 +920,13 @@ public:
                         _publishResultStatus(srv.response.success, "Failed to cutter grasp.");
                         ROS_ERROR_NAMED("vader_hri", "Falling back to Home Poses and trying again...");
                         currentState = State::HomeGripper;
+                        timer.finalize(TIMER_LABELS, true, CSV_LOG_FILEPATH);
                     }
                     break;
                 }
                 case State::GripperEndEffector:
                 {
+                    timer.split("HarvestActionStart");
                     _logWithState("Grasping fruit");
                     _sendGripperCommand(20);
                     ros::Duration(3.0).sleep();
@@ -811,6 +953,7 @@ public:
                     break;
                 }
                 case State::ParallelMoveStorage:{
+                    timer.split("StartMovingToStorage");
                     _logWithState("Planning parallel move to storage...");
                     vader_msgs::PlanningRequest srv;
                     srv.request.mode = vader_msgs::PlanningRequest::Request::PARALLEL_MOVE_STORAGE;
@@ -826,6 +969,8 @@ public:
                         {
                             _logWithState("Parallel move to storage failed.");
                             ROS_ERROR_NAMED("vader_hri", "Moving to storage failed!! Continuing to move home but pepper may have been lost.");
+                            timer.finalize(TIMER_LABELS, true, CSV_LOG_FILEPATH);
+
                             currentState = State::HomeGripper2;
                         }
                     }
@@ -866,6 +1011,8 @@ public:
                 
                 case State::Done:
                 {
+                    timer.split("CompletedHarvest");
+                    timer.finalize(TIMER_LABELS, false, CSV_LOG_FILEPATH);
                     _publishResultStatus(vader_msgs::HarvestResult::RESULT_SUCCESS, "Success!");
                     num_peppers_harvested += 1;
                     coarseEstimate = nullptr;
@@ -893,6 +1040,8 @@ public:
                 }
                 case State::Error:
                 {
+                    timer.finalize(TIMER_LABELS, true, CSV_LOG_FILEPATH);
+
                     break;
                 }
                 case State::End:
